@@ -46,6 +46,11 @@ type Styles struct {
 	RowSelected lipgloss.Style
 	RowMeta     lipgloss.Style
 
+	// Tab and TabActive are the pane chips across the cloud screen; the active
+	// chip is filled so the current pane reads at a glance.
+	Tab       lipgloss.Style
+	TabActive lipgloss.Style
+
 	EditorBox   lipgloss.Style
 	HelpBox     lipgloss.Style
 	HelpSection lipgloss.Style
@@ -139,6 +144,9 @@ func NewStyles(isDark bool) Styles {
 		Row:         lipgloss.NewStyle(),
 		RowSelected: lipgloss.NewStyle().Background(select_).Bold(true),
 		RowMeta:     fg(muted),
+
+		Tab:       fg(muted).Padding(0, 1),
+		TabActive: fg(accent).Bold(true).Background(select_).Padding(0, 1),
 
 		EditorBox: box(),
 		// The help sheet is dense, so it spends its rows on keys rather than

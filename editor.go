@@ -3,10 +3,34 @@ package main
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// editorKeys are the bindings inside the modal. A single-line field saves on
+// enter; a multi-line field leaves enter to the textarea and saves on ctrl+s.
+type editorKeys struct {
+	Save    key.Binding
+	Newline key.Binding
+	Cancel  key.Binding
+}
+
+func newEditorKeys(multiline bool) editorKeys {
+	if multiline {
+		return editorKeys{
+			Save:    key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
+			Newline: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "new line")),
+			Cancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		}
+	}
+	return editorKeys{
+		Save:   key.NewBinding(key.WithKeys("enter", "ctrl+s"), key.WithHelp("enter", "save")),
+		Cancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	}
+}
 
 // editKind says which field an open editor writes to.
 type editKind int
@@ -50,6 +74,7 @@ type editor struct {
 	hint      string
 	width     int
 	multiline bool
+	keys      editorKeys
 }
 
 // editorTextareaStyles drops the textarea's filled background, so the modal
@@ -106,6 +131,7 @@ func (e *editor) Open(target editTarget, title, hint, value string, width int, m
 	e.hint = hint
 	e.width = width
 	e.multiline = multiline
+	e.keys = newEditorKeys(multiline)
 	e.ta.SetValue(value)
 	e.ta.SetWidth(e.contentWidth())
 	e.ta.Placeholder = ""
@@ -124,26 +150,30 @@ func (e *editor) Value() string { return e.ta.Value() }
 
 // Update handles one key press.
 func (e *editor) Update(msg tea.KeyPressMsg) (editResult, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case key.Matches(msg, e.keys.Cancel):
 		e.open = false
 		return editCancelled, nil
-	case "ctrl+s":
+	case key.Matches(msg, e.keys.Save):
 		e.open = false
 		return editSaved, nil
-	case "enter":
-		if !e.multiline {
-			e.open = false
-			return editSaved, nil
-		}
 	}
+
+	// Anything not bound above, including enter in a multi-line field, belongs
+	// to the textarea.
 	var cmd tea.Cmd
 	e.ta, cmd = e.ta.Update(msg)
 	return editPending, cmd
 }
 
+// bindings are the keys the modal itself understands, for the footer and the
+// hint line inside the box.
+func (e *editor) bindings() []key.Binding {
+	return []key.Binding{e.keys.Save, e.keys.Newline, e.keys.Cancel}
+}
+
 // View renders the modal centred in the body area.
-func (e *editor) View(s Styles, width, height int) string {
+func (e *editor) View(s Styles, bar help.Model, width, height int) string {
 	w := e.contentWidth()
 	rows := []string{s.Title.Render(e.title)}
 	if e.hint != "" {
@@ -151,18 +181,7 @@ func (e *editor) View(s Styles, width, height int) string {
 	}
 	rows = append(rows, "", e.ta.View(), "")
 
-	if e.multiline {
-		rows = append(rows, hints(s,
-			hint{"ctrl+s", "save"},
-			hint{"enter", "new line"},
-			hint{"esc", "cancel"},
-		))
-	} else {
-		rows = append(rows, hints(s,
-			hint{"enter", "save"},
-			hint{"esc", "cancel"},
-		))
-	}
+	rows = append(rows, fitLine(bar.ShortHelpView(e.bindings()), w))
 
 	box := s.EditorBox.Width(w + boxFrame).Render(strings.Join(rows, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)

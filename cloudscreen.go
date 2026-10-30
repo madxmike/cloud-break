@@ -329,20 +329,30 @@ func (a *App) renderProcess(width, height int) string {
 	lines = append(lines, " "+a.styles.HelpSection.Render("Process"))
 	for _, step := range c.Steps() {
 		mark := a.styles.Faint.Render("[ ]")
-		title := a.styles.Strong.Render(fmt.Sprintf("%d. %s", step.Number, step.Title))
+		titleStyle := a.styles.Strong
 		if step.Done {
 			mark = a.styles.Success.Render("[x]")
-			title = a.styles.Dim.Render(fmt.Sprintf("%d. %s", step.Number, step.Title))
+			titleStyle = a.styles.Dim
 		}
-		lines = append(lines, " "+mark+" "+title)
-		lines = append(lines, "       "+a.styles.Faint.Render(truncate(step.Hint, max(8, width-9))))
+		title := titleStyle.Render(fmt.Sprintf("%d. %s", step.Number, step.Title))
+
+		// The concrete state when a stage is done, the way forward when it is
+		// not. Wrapped rather than cut, so the evidence stays readable.
+		head := " " + mark + " " + title + "  "
+		room := max(8, width-lipgloss.Width(head))
+		detail := wrapText(a.processDetail(step), room, 2)
+		lines = append(lines, fitLine(head+a.styles.Faint.Render(detail[0]), width))
+		for _, extra := range detail[1:] {
+			lines = append(lines, fitLine(strings.Repeat(" ", lipgloss.Width(head))+
+				a.styles.Faint.Render(extra), width))
+		}
 	}
 
 	if issues := c.Validate(); len(issues) > 0 {
 		lines = append(lines, "", " "+a.styles.HelpSection.Render("Issues"))
 		for _, issue := range issues {
 			lines = append(lines, " "+a.severityMark(issue.Severity)+" "+
-				a.styles.Dim.Render(truncate(issue.Message, max(8, width-5))))
+				a.styles.Dim.Render(truncate(issue.Message, max(8, width-4))))
 		}
 	}
 
@@ -356,6 +366,56 @@ func (a *App) renderProcess(width, height int) string {
 		lines = append(lines, " "+a.styles.Faint.Render("Nothing is broken yet, so there is nothing to verify."))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// processDetail says specifically where a stage stands: the evidence when it is
+// done, the missing piece when it is not.
+func (a *App) processDetail(step Step) string {
+	c := &a.cv.cloud
+
+	switch step.Number {
+	case 1:
+		if missing := c.Missing(); len(missing) > 0 {
+			names := make([]string, len(missing))
+			for i, slot := range missing {
+				names[i] = string(slot)
+			}
+			return "missing " + strings.Join(names, ", ")
+		}
+		filled, total := c.Progress()
+		return fmt.Sprintf("%d of %d statements stated", filled, total)
+
+	case 2:
+		covered := 0
+		for _, arrow := range Arrows() {
+			if c.CountFor(arrow) > 0 {
+				covered++
+			}
+		}
+		return fmt.Sprintf("%d of %d arrows carry an assumption", covered, len(Arrows()))
+
+	case 3:
+		weak := c.Weakest()
+		if weak == nil {
+			return "no assumption challenged yet"
+		}
+		return fmt.Sprintf("%s %s: %s", weak.Arrow, weak.Verdict, weak.Text)
+
+	case 4:
+		for _, as := range c.BrokenAssumptions() {
+			if injection := c.InjectionBreaking(as.ID); injection != nil {
+				return injection.Text
+			}
+		}
+		return "nothing injected against a broken assumption"
+
+	case 5:
+		if c.Verified {
+			return "the cloud is confirmed dissolved"
+		}
+		return "not confirmed yet"
+	}
+	return step.Hint
 }
 
 // severityMark is the glyph for a validation finding.

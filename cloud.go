@@ -61,21 +61,21 @@ func SlotInfos() []SlotInfo {
 			Slot:   SlotA,
 			Name:   "Objective",
 			Prompt: "What do both sides actually want?",
-			Hint:   "The shared aim that both needs serve. Not a compromise, not a position.",
+			Hint:   "The shared aim both needs serve. Not a position.",
 			Side:   0,
 		},
 		{
 			Slot:   SlotB,
 			Name:   "Need",
 			Prompt: "What does the first side need in order to reach the objective?",
-			Hint:   "A necessary condition, not a solution. What must be true for them?",
+			Hint:   "A necessary condition, not a solution.",
 			Side:   1,
 		},
 		{
 			Slot:   SlotC,
 			Name:   "Need",
 			Prompt: "What does the second side need in order to reach the objective?",
-			Hint:   "Write it as they would say it, not as a rebuttal of B.",
+			Hint:   "As they would say it, not a rebuttal of B.",
 			Side:   2,
 		},
 		{
@@ -89,7 +89,7 @@ func SlotInfos() []SlotInfo {
 			Slot:   SlotD2,
 			Name:   "Want",
 			Prompt: "What does the second side want to do to satisfy their need?",
-			Hint:   "It must genuinely collide with the other want, or there is no cloud.",
+			Hint:   "It must actually collide with the other want.",
 			Side:   2,
 		},
 	}
@@ -675,7 +675,7 @@ func (c *Cloud) Validate() []Issue {
 	for _, a := range Arrows() {
 		if c.CountFor(a) == 0 {
 			issues = append(issues, Issue{SeverityWarning,
-				fmt.Sprintf("Arrow %s has no assumptions yet: %s", a, a.Reading(c))})
+				fmt.Sprintf("Arrow %s has no assumptions yet.", a)})
 			continue
 		}
 		from, to := a.Ends()

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -73,6 +75,9 @@ type App struct {
 	cv     cloudScreen
 	ed     editor
 
+	keys    keyMap
+	helpBar help.Model
+
 	help    bool
 	flash   flash
 	confirm *confirmation
@@ -90,6 +95,8 @@ func NewApp(store *Store) *App {
 		styles: NewStyles(true),
 		screen: screenLibrary,
 	}
+	a.keys = newKeyMap()
+	a.initHelpBar()
 	a.lib.loading = true
 	a.ed = newEditor(true)
 	return a
@@ -112,6 +119,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
 		a.ed.Resize(a.width)
+		a.resizeHelpBar()
 		return a, nil
 
 	case tea.BackgroundColorMsg:
@@ -140,15 +148,16 @@ func (a *App) setTheme(isDark bool) {
 	a.isDark = isDark
 	a.styles = NewStyles(isDark)
 	a.ed.SetDark(isDark)
+	a.initHelpBar()
 }
 
 func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if match(msg, "ctrl+c") {
+	if key.Matches(msg, a.keys.CtrlC) {
 		return a, quitCmd
 	}
 
 	if a.help {
-		if match(msg, "esc", "q", "?", "enter") {
+		if key.Matches(msg, a.keys.Dismiss) {
 			a.help = false
 		}
 		return a, nil
@@ -157,7 +166,7 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if a.confirm != nil {
 		pending := a.confirm
 		a.confirm = nil
-		if match(msg, "y") {
+		if key.Matches(msg, a.keys.Yes) {
 			return a, pending.onYes(a)
 		}
 		return a, nil
@@ -184,105 +193,98 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a *App) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case match(msg, "q"):
+	case key.Matches(msg, a.keys.Quit):
 		return a, quitCmd
 
-	case match(msg, "up", "k"):
+	case key.Matches(msg, a.keys.Up):
 		a.lib.move(-1)
 
-	case match(msg, "down", "j"):
+	case key.Matches(msg, a.keys.Down):
 		a.lib.move(1)
 
-	case match(msg, "enter"):
+	case key.Matches(msg, a.keys.Open):
 		if c, ok := a.lib.selected(); ok {
 			a.openCloud(c)
 		}
 
-	case match(msg, "n"):
+	case key.Matches(msg, a.keys.New):
 		a.pendingNew = true
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "New cloud",
 			"The conflict itself, not a proposed solution.", "", a.width, false)
 
-	case match(msg, "d"):
+	case key.Matches(msg, a.keys.DeleteCloud):
 		if c, ok := a.lib.selected(); ok {
 			a.askDeleteCloud(c)
 		}
 
-	case match(msg, "?"):
+	case key.Matches(msg, a.keys.Help):
 		a.help = true
 	}
 	return a, nil
 }
 
 func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A digit jumps straight to its pane.
+	for i, binding := range a.keys.Pane {
+		if key.Matches(msg, binding) {
+			a.cv.pane = cloudPanes[i]
+			return a, nil
+		}
+	}
+
 	switch {
-	case match(msg, "esc", "q"):
+	case key.Matches(msg, a.keys.Back):
 		a.screen = screenLibrary
 
-	case match(msg, "tab"):
+	case key.Matches(msg, a.keys.NextPane):
 		a.cv.pane = a.cv.pane.next(1)
 
-	case match(msg, "shift+tab"):
+	case key.Matches(msg, a.keys.PrevPane):
 		a.cv.pane = a.cv.pane.next(-1)
 
-	case match(msg, "1"):
-		a.cv.pane = paneStatements
-
-	case match(msg, "2"):
-		a.cv.pane = paneCloud
-
-	case match(msg, "3"):
-		a.cv.pane = paneAssumptions
-
-	case match(msg, "4"):
-		a.cv.pane = paneInjections
-
-	case match(msg, "5"):
-		a.cv.pane = paneProcess
-
-	case match(msg, "up", "k"):
+	case key.Matches(msg, a.keys.Up):
 		a.moveCursor(-1)
 
-	case match(msg, "down", "j"):
+	case key.Matches(msg, a.keys.Down):
 		a.moveCursor(1)
 
-	case match(msg, "enter"):
+	case key.Matches(msg, a.keys.Edit):
 		return a, a.activate()
 
-	case match(msg, "a"):
+	case key.Matches(msg, a.keys.Add):
 		return a, a.add()
 
-	case match(msg, "i"):
+	case key.Matches(msg, a.keys.Inject):
 		return a, a.injectAgainstSelected()
 
-	case match(msg, "r"):
+	case key.Matches(msg, a.keys.Why):
 		return a, a.editInjectionRationale()
 
-	case match(msg, "v"):
+	case key.Matches(msg, a.keys.Verdict):
 		return a, a.cycleVerdict()
 
-	case match(msg, "V"):
+	case key.Matches(msg, a.keys.Verify):
 		return a, a.toggleVerified()
 
-	case match(msg, "e"):
+	case key.Matches(msg, a.keys.Evidence):
 		return a, a.editEvidence()
 
-	case match(msg, "x"):
+	case key.Matches(msg, a.keys.Delete):
 		return a, a.deleteSelected()
 
-	case match(msg, "t"):
+	case key.Matches(msg, a.keys.DeleteCloud):
+		a.askDeleteCloud(a.cv.cloud)
+
+	case key.Matches(msg, a.keys.Title):
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "Cloud title",
 			"A short name for the conflict.", a.cv.cloud.Title, a.width, false)
 
-	case match(msg, "s"):
+	case key.Matches(msg, a.keys.Sides):
 		value := a.cv.cloud.Party(1) + "\n" + a.cv.cloud.Party(2)
 		return a, a.ed.Open(editTarget{kind: editParties}, "Name the two sides",
 			"One name per line: your side, then theirs.", value, a.width, true)
 
-	case match(msg, "d"):
-		a.askDeleteCloud(a.cv.cloud)
-
-	case match(msg, "?"):
+	case key.Matches(msg, a.keys.Help):
 		a.help = true
 	}
 	return a, nil
@@ -721,46 +723,132 @@ func (a *App) View() tea.View {
 			lipgloss.Center, lipgloss.Center, a.styles.Dim.Render(message)))
 	}
 
-	var body string
-	switch {
-	case a.help:
-		body = a.renderHelp()
-	case a.ed.open:
-		body = a.ed.View(a.styles, a.width, a.bodyHeight())
-	case a.screen == screenLibrary:
-		body = a.renderLibrary()
-	default:
-		body = a.renderCloud()
-	}
-
-	view := tea.NewView(a.compose(body))
+	view := tea.NewView(a.compose())
 	view.AltScreen = true
 	view.WindowTitle = "cloud-break"
 	return view
 }
 
-// bodyHeight is the room left between the header and the two-line footer.
-func (a *App) bodyHeight() int { return a.height - 5 }
+// contextLines is how many rows the context hint may use. The assumptions pane
+// shows the whole necessity reading, which needs two rows on a narrow window.
+func (a *App) contextLines() int {
+	if a.screen == screenCloud && a.cv.pane == paneAssumptions {
+		return 2
+	}
+	return 1
+}
 
-// compose stacks header, body and footer into exactly the terminal height.
-func (a *App) compose(body string) string {
+// chromeHeight is every row that is not body: the header, its rules, the pane
+// tabs, the context hint and the key hints. It lives in one place so the body
+// always fills exactly the space that is left.
+func (a *App) chromeHeight() int {
+	switch {
+	case a.help:
+		return 3 // header, rule, closing hint
+	case a.screen == screenLibrary:
+		return 5 // header, rule, rule, context, keys
+	default:
+		return 6 + a.contextLines() // header, rule, tabs, spacer, rule, context, keys
+	}
+}
+
+// bodyHeight is the room left for the pane.
+func (a *App) bodyHeight() int { return a.height - a.chromeHeight() }
+
+// compose stacks the chrome and the body into exactly the terminal height.
+func (a *App) compose() string {
 	rule := a.styles.HeaderRule.Render(strings.Repeat("─", a.width))
 	lines := make([]string, 0, a.height)
-	lines = append(lines, a.renderHeader())
+	lines = append(lines, a.renderHeader(), rule)
+
+	if a.help {
+		lines = append(lines, fitLines(a.renderHelp(), a.bodyHeight(), a.width)...)
+		lines = append(lines, fitLine(" "+a.styles.Dim.Render("any key closes  ·  ^C quits"), a.width))
+		return strings.Join(lines, "\n")
+	}
+
+	if a.screen == screenCloud {
+		// The blank row keeps the tabs from crowding the pane beneath them.
+		lines = append(lines, a.renderTabs(), "")
+	}
+
+	lines = append(lines, fitLines(a.renderBody(), a.bodyHeight(), a.width)...)
 	lines = append(lines, rule)
-	lines = append(lines, fitLines(body, a.bodyHeight(), a.width)...)
-	lines = append(lines, rule)
-	lines = append(lines, fitLines(a.renderFooter(), 2, a.width)...)
+	lines = append(lines, a.footerLines()...)
 	return strings.Join(lines, "\n")
+}
+
+// renderBody is whichever pane, list or editor is in front.
+func (a *App) renderBody() string {
+	switch {
+	case a.ed.open:
+		return a.ed.View(a.styles, a.helpBar, a.width, a.bodyHeight())
+	case a.screen == screenLibrary:
+		return a.renderLibrary()
+	default:
+		return a.renderCloud()
+	}
+}
+
+// renderTabs draws every pane as a chip and fills the active one, so the pane
+// you are in and how many there are is visible rather than remembered.
+func (a *App) renderTabs() string {
+	helpHint := a.styles.Faint.Render("? help ")
+
+	strip := a.tabStrip(true)
+	if lipgloss.Width(strip)+lipgloss.Width(helpHint) > a.width {
+		strip = a.tabStrip(false) // too narrow for names: numbers only
+	}
+
+	if gap := a.width - lipgloss.Width(strip) - lipgloss.Width(helpHint); gap >= 0 {
+		strip += strings.Repeat(" ", gap) + helpHint
+	}
+	return fitLine(strip, a.width)
+}
+
+// tabStrip renders the pane chips, with or without their names.
+func (a *App) tabStrip(withNames bool) string {
+	chips := make([]string, 0, len(cloudPanes))
+	for i, p := range cloudPanes {
+		label := fmt.Sprintf("%d", i+1)
+		if withNames {
+			label = fmt.Sprintf("%d %s", i+1, p)
+		}
+		if p == a.cv.pane {
+			chips = append(chips, a.styles.TabActive.Render(label))
+			continue
+		}
+		chips = append(chips, a.styles.Tab.Render(label))
+	}
+	return " " + strings.Join(chips, "")
+}
+
+// footerLines is the context hint, wrapped rather than clipped, and the keys.
+func (a *App) footerLines() []string {
+	rows := wrapText(a.contextLine(), max(10, a.width-2), a.contextLines())
+	out := make([]string, 0, a.contextLines()+1)
+	for _, row := range rows {
+		out = append(out, fitLine(" "+a.styles.Subtle.Render(row), a.width))
+	}
+	for len(out) < a.contextLines() {
+		out = append(out, "")
+	}
+	return append(out, a.keysLine())
+}
+
+func (a *App) keysLine() string {
+	if a.confirm != nil {
+		return fitLine(" "+a.styles.Warning.Render(a.confirm.question)+"  "+
+			a.helpBar.ShortHelpView([]key.Binding{a.keys.Yes, a.keys.No}), a.width)
+	}
+	return fitLine(" "+a.helpBar.ShortHelpView(a.footerBindings()), a.width)
 }
 
 func (a *App) renderHeader() string {
 	left := a.styles.Title.Render("cloud-break")
 	if a.screen == screenCloud {
 		left += a.styles.Faint.Render("  ·  ") +
-			a.styles.Strong.Render(truncate(a.cv.cloud.Title, 40)) +
-			a.styles.Faint.Render("  ·  ") +
-			a.styles.Dim.Render(a.cv.pane.String())
+			a.styles.Strong.Render(truncate(a.cv.cloud.Title, 44))
 	} else {
 		left += a.styles.Faint.Render("  ·  library")
 	}
@@ -786,81 +874,16 @@ func (a *App) renderHeader() string {
 	return spread(left, right, a.width)
 }
 
-func (a *App) renderFooter() string {
-	var keys string
-	if a.confirm != nil {
-		keys = " " + a.styles.Warning.Render(a.confirm.question) + "  " +
-			hints(a.styles, hint{"y", "yes"}, hint{"n", "no"})
-	} else {
-		var items []hint
-		if a.screen == screenLibrary {
-			items = []hint{
-				{"↑/k ↓/j", "move"},
-				{"enter", "open"},
-				{"n", "new"},
-				{"d", "delete"},
-				{"?", "help"},
-				{"q", "quit"},
-			}
-		} else if a.cv.pane == paneInjections {
-			items = []hint{
-				{"↑/k ↓/j", "move"},
-				{"a", "add"},
-				{"enter", "edit"},
-				{"r", "why"},
-				{"x", "delete"},
-				{"V", "verify"},
-				{"tab", "pane"},
-				{"esc/q", "back"},
-			}
-		} else if a.cv.pane == paneProcess {
-			items = []hint{
-				{"V", "verify"},
-				{"tab", "pane"},
-				{"esc/q", "back"},
-				{"?", "help"},
-			}
-		} else if a.cv.pane == paneAssumptions {
-			items = []hint{
-				{"↑/k ↓/j", "move"},
-				{"a", "add"},
-				{"enter", "edit"},
-				{"v", "verdict"},
-				{"e", "evidence"},
-				{"x", "delete"},
-				{"tab", "pane"},
-				{"esc/q", "back"},
-			}
-		} else {
-			items = []hint{
-				{"↑/k ↓/j", "slot"},
-				{"enter", "edit"},
-				{"tab", "pane"},
-				{"t", "title"},
-				{"esc/q", "back"},
-				{"?", "help"},
-			}
-		}
-		keys = " " + hints(a.styles, items...)
-	}
-
-	context := ""
-	if line := a.contextLine(); line != "" {
-		context = " " + a.styles.Subtle.Render(line)
-	}
-	return context + "\n" + keys
-}
-
 // contextLine explains the current selection: the question a slot is asking,
 // or what the highlighted cloud still needs.
 func (a *App) contextLine() string {
 	if a.screen == screenCloud && a.cv.pane == paneCloud {
-		return "Read down: in order to satisfy a node, the nodes beneath it must hold. The × is the conflict."
+		return "Everything below a node must hold. The × is the conflict."
 	}
 	if a.screen == screenCloud && a.cv.pane == paneInjections {
 		if injection, ok := a.selectedInjection(); ok {
 			if broken := a.cv.cloud.BrokenBy(&injection); len(broken) > 0 {
-				return "Breaks: " + broken[0].Arrow.Reading(&a.cv.cloud)
+				return "Breaks: " + broken[0].Text
 			}
 			return "This injection breaks no assumption, so the conflict stands."
 		}
@@ -920,7 +943,7 @@ func nextStep(c Cloud) string {
 }
 
 func (a *App) renderHelp() string {
-	sections := helpSections()
+	sections := a.helpSections()
 	bodyHeight := a.bodyHeight()
 
 	// Richest layout first; fall back until one fits the body. A help sheet
@@ -974,16 +997,6 @@ func (a *App) helpSheet(content string, withFooter bool) string {
 	}
 	width = min(width, max(20, a.width-boxFrame-2))
 	return a.styles.HelpBox.Width(width + boxFrame).Render(inner)
-}
-
-// helpBlock renders one titled group of keys.
-func (a *App) helpBlock(section helpSection) string {
-	rows := []string{a.styles.HelpSection.Render(section.title)}
-	for _, item := range section.items {
-		rows = append(rows, "  "+a.styles.HelpKey.Width(9).Render(item.keys)+
-			"  "+a.styles.HelpDesc.Render(item.desc))
-	}
-	return strings.Join(rows, "\n")
 }
 
 // plural picks the singular or plural noun for a count.

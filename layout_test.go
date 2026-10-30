@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestNextStep(t *testing.T) {
@@ -73,10 +74,12 @@ func TestViewFitsTheWindow(t *testing.T) {
 		width, height := size[0], size[1]
 
 		states := map[string]func(a *App){
-			"library": func(a *App) {},
-			"cloud":   func(a *App) { a.Update(keyMsg("enter")) },
-			"editor":  func(a *App) { a.Update(keyMsg("enter")); a.Update(keyMsg("enter")) },
-			"help":    func(a *App) { a.Update(keyMsg("?")) },
+			"library":     func(a *App) {},
+			"cloud":       func(a *App) { a.Update(keyMsg("enter")) },
+			"assumptions": func(a *App) { a.Update(keyMsg("enter")); a.Update(keyMsg("3")) },
+			"process":     func(a *App) { a.Update(keyMsg("enter")); a.Update(keyMsg("5")) },
+			"editor":      func(a *App) { a.Update(keyMsg("enter")); a.Update(keyMsg("enter")) },
+			"help":        func(a *App) { a.Update(keyMsg("?")) },
 		}
 
 		for name, prepare := range states {
@@ -164,5 +167,76 @@ func TestCursorScrollsTheLastSlotIntoView(t *testing.T) {
 	}
 	if !strings.Contains(a.View().Content, "D' · Want") {
 		t.Errorf("the last slot is not on screen after moving to it:\n%s", a.View().Content)
+	}
+}
+
+func TestTabsShowEveryPaneAndTheActiveOne(t *testing.T) {
+	a := newSizedApp(t, 120, 30)
+	a.Update(keyMsg("enter"))
+
+	view := a.View().Content
+	for _, label := range []string{"1 statements", "2 cloud", "3 assumptions", "4 injections", "5 process"} {
+		if !strings.Contains(view, label) {
+			t.Errorf("tab bar missing %q:\n%s", label, ansi.Strip(view))
+		}
+	}
+
+	if !strings.Contains(view, a.styles.TabActive.Render("1 statements")) {
+		t.Error("the pane in front is not marked as active")
+	}
+
+	a.Update(keyMsg("3"))
+	if !strings.Contains(a.View().Content, a.styles.TabActive.Render("3 assumptions")) {
+		t.Error("the active chip did not follow the pane")
+	}
+}
+
+func TestTabBarIsSeparatedFromThePane(t *testing.T) {
+	a := newSizedApp(t, 120, 30)
+	a.Update(keyMsg("enter"))
+
+	lines := strings.Split(a.View().Content, "\n")
+	if !strings.Contains(ansi.Strip(lines[2]), "1 statements") {
+		t.Fatalf("row 2 is not the tab bar: %q", ansi.Strip(lines[2]))
+	}
+	if strings.TrimSpace(ansi.Strip(lines[3])) != "" {
+		t.Errorf("no spacer between the tabs and the pane: %q", ansi.Strip(lines[3]))
+	}
+}
+
+func TestLeftAndRightSwitchPanes(t *testing.T) {
+	a := newSizedApp(t, 120, 30)
+	a.Update(keyMsg("enter"))
+	if a.cv.pane != paneStatements {
+		t.Fatalf("opened on %v", a.cv.pane)
+	}
+
+	a.Update(keyMsg("right"))
+	if a.cv.pane != paneCloud {
+		t.Errorf("right moved to %v, want cloud", a.cv.pane)
+	}
+	a.Update(keyMsg("left"))
+	if a.cv.pane != paneStatements {
+		t.Errorf("left moved to %v, want statements", a.cv.pane)
+	}
+	a.Update(keyMsg("left"))
+	if a.cv.pane != paneProcess {
+		t.Errorf("left from the first pane = %v, want wrap to process", a.cv.pane)
+	}
+}
+
+func TestContextIsWrappedNotTruncated(t *testing.T) {
+	a := newSizedApp(t, 80, 24)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("3"))
+	// The footer describes the arrow under the cursor; walk to B-D.
+	a.Update(keyMsg("down"))
+	a.Update(keyMsg("down"))
+
+	// The reading for B-D is longer than one narrow footer row.
+	reading := strings.Join(strings.Fields(ArrowBD.Reading(&a.cv.cloud)), " ")
+	plain := strings.Join(strings.Fields(ansi.Strip(a.View().Content)), " ")
+	if !strings.Contains(plain, reading) {
+		t.Errorf("the necessity reading was cut off:\n%s", plain)
 	}
 }

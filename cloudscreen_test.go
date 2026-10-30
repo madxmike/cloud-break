@@ -645,3 +645,27 @@ func TestProcessPaneShowsStepsAndIssues(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessShowsConcreteEvidence(t *testing.T) {
+	a := newSizedApp(t, 120, 30)
+	a.Update(keyMsg("enter"))
+
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
+	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
+	a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.Update(keyMsg("5"))
+
+	// Render the pane on its own: in the split view the diagram's column would
+	// sit between the wrapped lines.
+	plain := strings.Join(strings.Fields(ansi.Strip(a.renderProcess(80, 20))), " ")
+	for _, want := range []string{
+		"5 of 5 statements stated",
+		"1 of 5 arrows carry an assumption",
+		"B-D invalid: review catches every regression",
+		"automate the review",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("process pane missing %q:\n%s", want, plain)
+		}
+	}
+}

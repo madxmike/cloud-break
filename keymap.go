@@ -3,68 +3,184 @@ package main
 import (
 	"strings"
 
-	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
 )
 
-// hint is one key/description pair shown in a footer or the help sheet.
-type hint struct {
-	keys string
-	desc string
+// keyMap is every binding in the app. Matching and help text come from the same
+// table, so a key cannot be handled without also being documented, and the
+// footer, the help sheet and the handler can never drift apart.
+type keyMap struct {
+	Up   key.Binding
+	Down key.Binding
+	// Move is display-only: a single footer entry for the four movement keys,
+	// which the handlers match separately so they know the direction.
+	Move        key.Binding
+	Open        key.Binding
+	Back        key.Binding
+	New         key.Binding
+	Delete      key.Binding // the assumption or injection under the cursor
+	DeleteCloud key.Binding
+	Edit        key.Binding
+	Add         key.Binding
+	Verdict     key.Binding
+	Evidence    key.Binding
+	Inject      key.Binding
+	Why         key.Binding
+	Verify      key.Binding
+	Title       key.Binding
+	Sides       key.Binding
+	Help        key.Binding
+	Quit        key.Binding
+	CtrlC       key.Binding
+	NextPane    key.Binding
+	PrevPane    key.Binding
+	Dismiss     key.Binding
+	Yes         key.Binding
+	No          key.Binding
+
+	// Pane holds the direct-jump keys, in the order of cloudPanes.
+	Pane []key.Binding
 }
 
-// match reports whether a key press is any of the given keystrokes, so screens
-// can group key handling without a separate binding registry.
-func match(msg tea.KeyPressMsg, keys ...string) bool {
-	got := msg.String()
-	for _, want := range keys {
-		if got == want {
-			return true
-		}
+func newKeyMap() keyMap {
+	jump := func(number, name string) key.Binding {
+		return key.NewBinding(key.WithKeys(number), key.WithHelp(number, name))
 	}
-	return false
-}
 
-// hints renders a footer line of key chords.
-func hints(s Styles, items ...hint) string {
-	parts := make([]string, 0, len(items))
-	for _, item := range items {
-		parts = append(parts, s.FootKey.Render(item.keys)+" "+s.FootDesc.Render(item.desc))
+	return keyMap{
+		Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move up")),
+		Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move down")),
+		Move:        key.NewBinding(key.WithKeys("up", "k", "down", "j"), key.WithHelp("↑/k ↓/j", "move")),
+		Open:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		Back:        key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc/q", "back")),
+		New:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new cloud")),
+		Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
+		DeleteCloud: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete cloud")),
+
+		Edit:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
+		Add:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+		Verdict:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "verdict")),
+		Evidence: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "evidence")),
+		Inject:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inject")),
+		Why:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "why")),
+		Verify:   key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "verify")),
+		Title:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "title")),
+		Sides:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sides")),
+
+		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+		CtrlC:    key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^C", "quit")),
+		NextPane: key.NewBinding(key.WithKeys("tab", "right"), key.WithHelp("tab/→", "next pane")),
+		PrevPane: key.NewBinding(key.WithKeys("shift+tab", "left"), key.WithHelp("⇧tab/←", "previous pane")),
+		Dismiss:  key.NewBinding(key.WithKeys("esc", "q", "?", "enter")),
+		Yes:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
+		No:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
+
+		Pane: []key.Binding{
+			jump("1", "statements"),
+			jump("2", "cloud"),
+			jump("3", "assumptions"),
+			jump("4", "injections"),
+			jump("5", "process"),
+		},
 	}
-	return strings.Join(parts, s.Faint.Render(" · "))
 }
 
-// helpSection groups hints in the help sheet.
+// helpBarStyles paints the shared help model with this app's palette.
+func helpBarStyles(s Styles) help.Styles {
+	return help.Styles{
+		ShortKey:       s.FootKey,
+		ShortDesc:      s.FootDesc,
+		ShortSeparator: s.Faint,
+		FullKey:        s.HelpKey,
+		FullDesc:       s.HelpDesc,
+		FullSeparator:  s.Faint,
+		Ellipsis:       s.Faint,
+	}
+}
+
+// initHelpBar rebuilds the help model for the current palette and width.
+func (a *App) initHelpBar() {
+	a.helpBar = help.New()
+	a.helpBar.ShortSeparator = " · "
+	a.helpBar.Styles = helpBarStyles(a.styles)
+	a.resizeHelpBar()
+}
+
+func (a *App) resizeHelpBar() {
+	if a.width > 0 {
+		a.helpBar.SetWidth(max(1, a.width-1))
+	}
+}
+
+// footerBindings are the few keys worth showing for whatever is in front. The
+// tabs already say which pane is open, so switching is not repeated here.
+func (a *App) footerBindings() []key.Binding {
+	k := a.keys
+
+	if a.ed.open {
+		return a.ed.bindings()
+	}
+
+	if a.screen == screenLibrary {
+		return []key.Binding{k.Move, k.Open, k.New, k.DeleteCloud, k.Help, k.Quit}
+	}
+
+	switch a.cv.pane {
+	case paneAssumptions:
+		return []key.Binding{k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Delete}
+	case paneInjections:
+		return []key.Binding{k.Move, k.Add, k.Edit, k.Why, k.Verify, k.Delete}
+	case paneProcess:
+		return []key.Binding{k.Verify, k.Back}
+	case paneCloud:
+		return []key.Binding{k.Back}
+	}
+
+	return []key.Binding{k.Move, k.Edit, k.Title, k.Sides, k.Back}
+}
+
+// helpSection is one titled group of bindings in the help sheet.
 type helpSection struct {
 	title string
-	items []hint
+	keys  []key.Binding
 }
 
-// helpSections is the key reference. It stays short enough to fit a normal
-// terminal; each pane's footer carries the keys specific to that pane.
-func helpSections() []helpSection {
+// helpSections is the full reference, grouped by where the keys apply.
+func (a *App) helpSections() []helpSection {
+	k := a.keys
+
+	panes := make([]key.Binding, 0, len(k.Pane)+3)
+	panes = append(panes, k.NextPane, k.PrevPane)
+	panes = append(panes, k.Pane...)
+	panes = append(panes, k.Help)
+
 	return []helpSection{
 		{
 			title: "Library",
-			items: []hint{
-				{"↑/k ↓/j", "move"},
-				{"enter", "open"},
-				{"n", "new cloud"},
-				{"d", "delete cloud"},
-				{"q", "quit"},
-			},
+			keys:  []key.Binding{k.Move, k.Open, k.New, k.DeleteCloud, k.Quit},
 		},
 		{
 			title: "Cloud",
-			items: []hint{
-				{"↑/k ↓/j", "move"},
-				{"enter", "edit"},
-				{"a", "add"},
-				{"i", "inject"},
-				{"v", "verdict"},
-				{"V", "verify"},
-				{"tab", "switch pane"},
-				{"esc/q", "back"},
+			keys: []key.Binding{
+				k.Edit, k.Add, k.Verdict, k.Evidence, k.Inject,
+				k.Verify, k.Title, k.Sides, k.Delete, k.Back,
 			},
 		},
+		{title: "Panes", keys: panes},
 	}
+}
+
+// helpBlock renders one titled group of keys.
+func (a *App) helpBlock(section helpSection) string {
+	rows := []string{a.styles.HelpSection.Render(section.title)}
+	for _, binding := range section.keys {
+		if !binding.Enabled() {
+			continue
+		}
+		rows = append(rows, "  "+a.styles.HelpKey.Width(9).Render(binding.Help().Key)+
+			"  "+a.styles.HelpDesc.Render(binding.Help().Desc))
+	}
+	return strings.Join(rows, "\n")
 }
