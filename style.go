@@ -64,6 +64,19 @@ func (s Styles) StatusStyle(st Status) lipgloss.Style {
 	return s.Status[st]
 }
 
+// VerdictStyle colours an assumption by the judgement recorded for it.
+func (s Styles) VerdictStyle(v Verdict) lipgloss.Style {
+	switch v {
+	case Holds:
+		return s.Success
+	case Questionable:
+		return s.Warning
+	case Invalid:
+		return s.Danger
+	}
+	return s.Faint
+}
+
 // NewStyles builds a palette. Accent hues are darkened for light terminals so
 // text keeps its contrast instead of glowing out.
 func NewStyles(isDark bool) Styles {

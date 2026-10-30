@@ -14,14 +14,18 @@ type pane int
 const (
 	paneStatements pane = iota
 	paneCloud
+	paneAssumptions
 )
 
 // cloudPanes is the switch order for the pane keys.
-var cloudPanes = []pane{paneStatements, paneCloud}
+var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions}
 
 func (p pane) String() string {
-	if p == paneCloud {
+	switch p {
+	case paneCloud:
 		return "cloud"
+	case paneAssumptions:
+		return "assumptions"
 	}
 	return "statements"
 }
@@ -41,9 +45,10 @@ func (p pane) next(delta int) pane {
 // cloudScreen is the editor for one cloud: the statement slots, the active pane
 // and the cursor that says which slot is being worked on.
 type cloudScreen struct {
-	cloud  Cloud
-	pane   pane
-	cursor int
+	cloud            Cloud
+	pane             pane
+	cursor           int // statement slot
+	assumptionCursor int // row in the assumptions pane
 }
 
 func newCloudScreen(c Cloud) cloudScreen { return cloudScreen{cloud: c} }
@@ -84,6 +89,8 @@ func (a *App) renderPane(width, height int) string {
 	switch a.cv.pane {
 	case paneCloud:
 		return a.renderDiagramPane(width, height)
+	case paneAssumptions:
+		return a.renderAssumptions(width, height)
 	default:
 		return a.renderStatements(width, height)
 	}
@@ -104,6 +111,110 @@ func (a *App) renderDiagramPane(width, height int) string {
 		lines[i] = strings.Repeat(" ", indent) + line
 	}
 	return strings.Join(lines, "\n")
+}
+
+// assumptionRow is one line of the assumptions pane: an arrow heading, or one
+// assumption behind that arrow.
+type assumptionRow struct {
+	arrow Arrow
+	id    string // empty on a heading
+}
+
+// assumptionRows flattens the cloud into headings and assumptions, so a single
+// cursor can walk the whole argument.
+func (a *App) assumptionRows() []assumptionRow {
+	var rows []assumptionRow
+	for _, arrow := range Arrows() {
+		rows = append(rows, assumptionRow{arrow: arrow})
+		for _, as := range a.cv.cloud.AssumptionsFor(arrow) {
+			rows = append(rows, assumptionRow{arrow: arrow, id: as.ID})
+		}
+	}
+	return rows
+}
+
+// renderAssumptions draws every arrow with the assumptions behind it.
+func (a *App) renderAssumptions(width, height int) string {
+	rows := a.assumptionRows()
+	if len(rows) == 0 {
+		return ""
+	}
+
+	selected := max(0, min(a.cv.assumptionCursor, len(rows)-1))
+	lines := make([]string, len(rows))
+	heights := make([]int, len(rows))
+	for i, row := range rows {
+		lines[i] = a.assumptionLine(row, i == selected, width)
+		heights[i] = 1
+	}
+
+	start, end := visibleRange(heights, selected, height)
+	return strings.Join(lines[start:end], "\n")
+}
+
+func (a *App) assumptionLine(row assumptionRow, selected bool, width int) string {
+	if row.id == "" {
+		return a.arrowHeading(row.arrow, selected, width)
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return ""
+	}
+	return a.assumptionText(*as, selected, width)
+}
+
+// arrowHeading shows the sentence an arrow stands for, so the "because" being
+// added has a meaning in the argument.
+func (a *App) arrowHeading(arrow Arrow, selected bool, width int) string {
+	badge := a.styles.Accent.Bold(true).Render(string(arrow))
+	if count := a.cv.cloud.CountFor(arrow); count > 0 {
+		badge += a.styles.Faint.Render(fmt.Sprintf(" %d", count))
+	}
+
+	// The full "in order to ..." sentence is in the footer. Here the heading
+	// carries the statement the arrow rests on, which keeps every row distinct
+	// even when the readings share a long prefix.
+	room := max(8, width-lipgloss.Width(badge)-4)
+	line := " " + badge + "  " + a.styles.Dim.Render(truncate(a.arrowSubject(arrow), room))
+	line = fitLine(line, width)
+	if selected {
+		return a.styles.RowSelected.Width(width).Render(line)
+	}
+	return line
+}
+
+// arrowSubject names the condition an arrow rests on.
+func (a *App) arrowSubject(arrow Arrow) string {
+	if arrow == ArrowDD2 {
+		return "the two wants cannot both happen"
+	}
+	from, _ := arrow.Ends()
+	if text := a.cv.cloud.Text(from); text != "" {
+		return text
+	}
+	return "not yet stated"
+}
+
+// assumptionText is one assumption: verdict glyph, the "because", and a mark
+// when evidence has been recorded for it.
+func (a *App) assumptionText(as Assumption, selected bool, width int) string {
+	marker := "   "
+	if selected {
+		marker = " ▸ "
+	}
+	glyph := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph())
+
+	evidence := ""
+	if strings.TrimSpace(as.Evidence) != "" {
+		evidence = " " + a.styles.Faint.Render("≡")
+	}
+
+	room := max(8, width-lipgloss.Width(marker)-lipgloss.Width(glyph)-lipgloss.Width(evidence)-3)
+	text := a.styles.CardValue
+	if selected {
+		text = a.styles.Strong
+	}
+	return fitLine(marker+glyph+" "+text.Render(truncate(as.Text, room))+evidence, width)
 }
 
 // renderStatements draws the five statement cards, scrolled to the cursor.

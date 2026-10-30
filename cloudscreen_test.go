@@ -104,14 +104,19 @@ func TestPaneCycle(t *testing.T) {
 	if got := paneStatements.next(1); got != paneCloud {
 		t.Errorf("statements.next(1) = %v", got)
 	}
-	if got := paneCloud.next(1); got != paneStatements {
-		t.Errorf("cloud.next(1) = %v, want wrap", got)
+	if got := paneCloud.next(1); got != paneAssumptions {
+		t.Errorf("cloud.next(1) = %v", got)
 	}
-	if got := paneStatements.next(-1); got != paneCloud {
+	if got := paneAssumptions.next(1); got != paneStatements {
+		t.Errorf("assumptions.next(1) = %v, want wrap", got)
+	}
+	if got := paneStatements.next(-1); got != paneAssumptions {
 		t.Errorf("statements.next(-1) = %v, want wrap", got)
 	}
-	if got := paneCloud.String(); got != "cloud" {
-		t.Errorf("String = %q", got)
+	for want, p := range map[string]pane{"statements": paneStatements, "cloud": paneCloud, "assumptions": paneAssumptions} {
+		if got := p.String(); got != want {
+			t.Errorf("String = %q, want %q", got, want)
+		}
 	}
 }
 
@@ -250,12 +255,210 @@ func TestCloudPaneShowsTheDiagram(t *testing.T) {
 	}
 
 	a.Update(keyMsg("tab"))
-	if a.cv.pane != paneStatements {
-		t.Errorf("tab did not return to statements, got %v", a.cv.pane)
+	if a.cv.pane != paneAssumptions {
+		t.Errorf("tab from the cloud pane should reach assumptions, got %v", a.cv.pane)
 	}
-	a.Update(keyMsg("tab"))
 	a.Update(keyMsg("1"))
 	if a.cv.pane != paneStatements {
 		t.Errorf("1 did not select statements, got %v", a.cv.pane)
+	}
+}
+
+// openAssumptions opens the test cloud on the assumptions pane.
+func openAssumptions(t *testing.T) *App {
+	t.Helper()
+	a := newSizedApp(t, 110, 30)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("3"))
+	return a
+}
+
+func TestAssumptionRowsAlwaysShowEveryArrow(t *testing.T) {
+	a := openAssumptions(t)
+	rows := a.assumptionRows()
+	if len(rows) != len(Arrows()) {
+		t.Fatalf("rows = %d, want one heading per arrow (%d)", len(rows), len(Arrows()))
+	}
+	for i, arrow := range Arrows() {
+		if rows[i].arrow != arrow || rows[i].id != "" {
+			t.Errorf("row %d = %+v, want heading %s", i, rows[i], arrow)
+		}
+	}
+}
+
+func TestArrowSubjectsAreDistinct(t *testing.T) {
+	a := openAssumptions(t)
+	seen := map[string]Arrow{}
+	for _, arrow := range Arrows() {
+		subject := a.arrowSubject(arrow)
+		if subject == "" {
+			t.Errorf("%s has no subject", arrow)
+		}
+		if previous, ok := seen[subject]; ok {
+			t.Errorf("%s and %s share the subject %q", previous, arrow, subject)
+		}
+		seen[subject] = arrow
+	}
+
+	empty := New("empty")
+	a.cv.cloud = *empty
+	if got := a.arrowSubject(ArrowBD); got != "not yet stated" {
+		t.Errorf("empty subject = %q", got)
+	}
+}
+
+func TestAddAssumptionFromHeading(t *testing.T) {
+	a := openAssumptions(t)
+	a.cv.assumptionCursor = 2 // the B-D heading
+
+	a.Update(keyMsg("a"))
+	if !a.ed.open {
+		t.Fatal("a did not open the editor")
+	}
+	for _, r := range "review catches every regression" {
+		a.Update(keyMsg(string(r)))
+	}
+	a.Update(keyMsg("enter"))
+
+	if len(a.cv.cloud.Assumptions) != 1 {
+		t.Fatalf("assumptions = %d, want 1", len(a.cv.cloud.Assumptions))
+	}
+	added := a.cv.cloud.Assumptions[0]
+	if added.Arrow != ArrowBD || added.Text != "review catches every regression" {
+		t.Errorf("assumption = %+v", added)
+	}
+
+	row, ok := a.selectedAssumptionRow()
+	if !ok || row.id != added.ID {
+		t.Errorf("cursor did not follow the new assumption: %+v", row)
+	}
+
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(saved.Assumptions) != 1 || saved.Assumptions[0].Text != added.Text {
+		t.Errorf("not persisted: %+v", saved.Assumptions)
+	}
+}
+
+func TestAddingAnEmptyAssumptionIsIgnored(t *testing.T) {
+	a := openAssumptions(t)
+	a.Update(keyMsg("a"))
+	a.Update(keyMsg("enter")) // save with no text
+
+	if len(a.cv.cloud.Assumptions) != 0 {
+		t.Errorf("an empty assumption was stored: %+v", a.cv.cloud.Assumptions)
+	}
+}
+
+func TestVerdictCyclePersists(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.selectAssumption(id)
+
+	want := []Verdict{Holds, Questionable, Invalid, Unassessed}
+	for i, expected := range want {
+		a.Update(keyMsg("v"))
+		if got := a.cv.cloud.AssumptionByID(id).Verdict; got != expected {
+			t.Fatalf("press %d: verdict = %v, want %v", i+1, got, expected)
+		}
+	}
+
+	a.Update(keyMsg("v"))
+	a.Update(keyMsg("v"))
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := saved.Assumptions[0].Verdict; got != Questionable {
+		t.Errorf("persisted verdict = %v, want questionable", got)
+	}
+}
+
+func TestEvidenceIsSavedAndTrims(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.selectAssumption(id)
+
+	a.Update(keyMsg("e"))
+	if !a.ed.open {
+		t.Fatal("e did not open the evidence editor")
+	}
+	for _, r := range "three regressions" {
+		a.Update(keyMsg(string(r)))
+	}
+	a.Update(keyMsg("enter")) // multi-line editor: enter is a newline
+	for _, r := range "last quarter" {
+		a.Update(keyMsg(string(r)))
+	}
+	a.Update(keyMsg("ctrl+s"))
+
+	got := a.cv.cloud.AssumptionByID(id).Evidence
+	if !strings.Contains(got, "three regressions") || !strings.Contains(got, "last quarter") {
+		t.Errorf("evidence = %q", got)
+	}
+	if !strings.Contains(got, "\n") {
+		t.Errorf("multi-line evidence lost its line break: %q", got)
+	}
+}
+
+func TestActionsOnAHeadingExplainThemselves(t *testing.T) {
+	a := openAssumptions(t)
+	a.cv.assumptionCursor = 0 // A-B heading
+
+	for _, key := range []string{"v", "e", "x"} {
+		a.Update(keyMsg(key))
+		if a.flash.text == "" {
+			t.Errorf("%q on a heading gave no message", key)
+		}
+		if a.ed.open {
+			t.Errorf("%q opened an editor on a heading", key)
+		}
+	}
+}
+
+func TestDeleteAssumptionNeedsConfirmation(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.selectAssumption(id)
+
+	a.Update(keyMsg("x"))
+	if a.confirm == nil {
+		t.Fatal("x did not ask for confirmation")
+	}
+	a.Update(keyMsg("n"))
+	if a.cv.cloud.AssumptionByID(id) == nil {
+		t.Fatal("n deleted the assumption anyway")
+	}
+
+	a.Update(keyMsg("x"))
+	a.Update(keyMsg("y"))
+	if a.cv.cloud.AssumptionByID(id) != nil {
+		t.Error("y did not delete the assumption")
+	}
+
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(saved.Assumptions) != 0 {
+		t.Errorf("deletion not persisted: %+v", saved.Assumptions)
+	}
+}
+
+func TestAssumptionCursorStaysInRange(t *testing.T) {
+	a := openAssumptions(t)
+	for range 20 {
+		a.Update(keyMsg("down"))
+	}
+	if got, want := a.cv.assumptionCursor, len(a.assumptionRows())-1; got != want {
+		t.Errorf("cursor = %d, want %d", got, want)
+	}
+	for range 20 {
+		a.Update(keyMsg("up"))
+	}
+	if a.cv.assumptionCursor != 0 {
+		t.Errorf("cursor = %d, want 0", a.cv.assumptionCursor)
 	}
 }

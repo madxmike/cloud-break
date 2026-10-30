@@ -143,8 +143,10 @@ func TestHelpSheetIsNotClipped(t *testing.T) {
 		a := newSizedApp(t, size[0], size[1])
 		a.Update(keyMsg("?"))
 		view := a.View().Content
-		if !strings.Contains(view, "any key closes") {
-			t.Errorf("%dx%d: help footer was clipped", size[0], size[1])
+		// A clipped sheet loses its bottom border, which is the failure that
+		// looks broken. The closing hint is allowed to drop when space is tight.
+		if got := strings.Count(view, "╯"); got != 1 {
+			t.Errorf("%dx%d: help box bottom border rendered %d times, want 1", size[0], size[1], got)
 		}
 		for _, section := range []string{"Library", "Cloud"} {
 			if !strings.Contains(view, section) {

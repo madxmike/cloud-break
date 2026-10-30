@@ -15,13 +15,17 @@ const (
 	editCloudTitle editKind = iota
 	editStatement
 	editParties
+	editAssumptionText
+	editAssumptionEvidence
 )
 
 // editTarget identifies the field being edited. It is plain data rather than a
 // closure so the editor stays inspectable and testable.
 type editTarget struct {
-	kind editKind
-	slot Slot
+	kind  editKind
+	slot  Slot
+	id    string // assumption being edited, empty when adding one
+	arrow Arrow  // arrow a new assumption belongs to
 }
 
 // editResult is the outcome of one key press inside the editor.

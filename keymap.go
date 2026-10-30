@@ -56,12 +56,14 @@ func helpSections() []helpSection {
 		{
 			title: "Cloud",
 			items: []hint{
-				{"↑/k", "previous slot"},
-				{"↓/j", "next slot"},
-				{"enter", "edit statement"},
+				{"↑/k ↓/j", "move"},
+				{"enter", "edit"},
+				{"a", "add assumption"},
+				{"v", "cycle verdict"},
+				{"e", "evidence"},
+				{"x", "delete assumption"},
 				{"tab", "switch pane"},
 				{"t", "rename cloud"},
-				{"s", "name sides"},
 				{"esc/q", "back"},
 			},
 		},

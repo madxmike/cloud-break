@@ -215,23 +215,9 @@ func (a *App) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	count := len(SlotInfos())
 	switch {
 	case match(msg, "esc", "q"):
 		a.screen = screenLibrary
-
-	case match(msg, "up", "k"):
-		a.cv.move(-1, count)
-
-	case match(msg, "down", "j"):
-		a.cv.move(1, count)
-
-	case match(msg, "enter"):
-		if a.cv.pane != paneStatements {
-			a.cv.pane = paneStatements
-			return a, nil
-		}
-		return a, a.editSlot()
 
 	case match(msg, "tab"):
 		a.cv.pane = a.cv.pane.next(1)
@@ -244,6 +230,30 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case match(msg, "2"):
 		a.cv.pane = paneCloud
+
+	case match(msg, "3"):
+		a.cv.pane = paneAssumptions
+
+	case match(msg, "up", "k"):
+		a.moveCursor(-1)
+
+	case match(msg, "down", "j"):
+		a.moveCursor(1)
+
+	case match(msg, "enter"):
+		return a, a.activate()
+
+	case match(msg, "a"):
+		return a, a.addAssumption()
+
+	case match(msg, "v"):
+		return a, a.cycleVerdict()
+
+	case match(msg, "e"):
+		return a, a.editEvidence()
+
+	case match(msg, "x"):
+		return a, a.askDeleteAssumption()
 
 	case match(msg, "t"):
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "Cloud title",
@@ -261,6 +271,152 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.help = true
 	}
 	return a, nil
+}
+
+// moveCursor moves the selection inside the active pane.
+func (a *App) moveCursor(delta int) {
+	if a.cv.pane == paneAssumptions {
+		last := len(a.assumptionRows()) - 1
+		a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor+delta, last))
+		return
+	}
+	a.cv.move(delta, len(SlotInfos()))
+}
+
+// activate handles enter: edit the highlighted statement or assumption.
+func (a *App) activate() tea.Cmd {
+	if a.cv.pane == paneAssumptions {
+		return a.editAssumption()
+	}
+	if a.cv.pane != paneStatements {
+		a.cv.pane = paneStatements
+		return nil
+	}
+	return a.editSlot()
+}
+
+// editAssumption opens the selected assumption's text, or starts a new one when
+// the cursor is on an arrow heading.
+func (a *App) editAssumption() tea.Cmd {
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	if row.id == "" {
+		return a.addAssumption()
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editAssumptionText, id: as.ID, arrow: row.arrow},
+		fmt.Sprintf("%s · assumption", row.arrow), a.arrowHint(row.arrow),
+		as.Text, a.width, false)
+}
+
+// addAssumption starts a new assumption on the arrow under the cursor.
+func (a *App) addAssumption() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editAssumptionText, id: "", arrow: row.arrow},
+		fmt.Sprintf("%s · new assumption", row.arrow), a.arrowHint(row.arrow),
+		"", a.width, false)
+}
+
+// arrowHint is the question the arrow is asking.
+func (a *App) arrowHint(arrow Arrow) string {
+	return "What has to be true for this arrow to hold? " + arrow.Reading(&a.cv.cloud)
+}
+
+// cycleVerdict moves the selected assumption through the four judgements.
+func (a *App) cycleVerdict() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	if row.id == "" {
+		return a.setFlash("That row is an arrow, not an assumption. Press a to add one.", false)
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return nil
+	}
+	as.Verdict = as.Verdict.Next()
+	return tea.Batch(a.persist(), a.setFlash("Marked "+as.Verdict.String()+".", false))
+}
+
+// editEvidence records why an assumption is judged the way it is.
+func (a *App) editEvidence() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	if row.id == "" {
+		return a.setFlash("That row is an arrow, not an assumption. Press a to add one.", false)
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editAssumptionEvidence, id: as.ID, arrow: row.arrow},
+		fmt.Sprintf("%s · evidence", row.arrow),
+		"What makes this hold, or fail? Cite what you have seen.",
+		as.Evidence, a.width, true)
+}
+
+// askDeleteAssumption confirms before removing an assumption.
+func (a *App) askDeleteAssumption() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	if row.id == "" {
+		return a.setFlash("That row is an arrow, not an assumption.", false)
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return nil
+	}
+	id, text := as.ID, as.Text
+	a.confirm = &confirmation{
+		question: fmt.Sprintf("Delete the assumption %q?", shorten(text, 40)),
+		onYes: func(app *App) tea.Cmd {
+			app.cv.cloud.RemoveAssumption(id)
+			app.clampAssumptionCursor()
+			return app.persist()
+		},
+	}
+	return nil
+}
+
+// clampAssumptionCursor keeps the cursor inside the row list.
+func (a *App) clampAssumptionCursor() {
+	last := len(a.assumptionRows()) - 1
+	a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor, last))
+}
+
+// selectedAssumptionRow is the row under the cursor in the assumptions pane.
+func (a *App) selectedAssumptionRow() (assumptionRow, bool) {
+	rows := a.assumptionRows()
+	if len(rows) == 0 {
+		return assumptionRow{}, false
+	}
+	index := max(0, min(a.cv.assumptionCursor, len(rows)-1))
+	return rows[index], true
 }
 
 // editSlot opens the editor on the highlighted statement.
@@ -311,8 +467,36 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 		}
 		a.cv.cloud.SetParties(first, second)
 		return a.persist()
+
+	case editAssumptionText:
+		if strings.TrimSpace(value) == "" && target.id == "" {
+			return nil
+		}
+		if target.id == "" {
+			id := a.cv.cloud.AddAssumption(target.arrow, value)
+			a.selectAssumption(id)
+		} else if as := a.cv.cloud.AssumptionByID(target.id); as != nil {
+			as.Text = OneLine(value)
+		}
+		return a.persist()
+
+	case editAssumptionEvidence:
+		if as := a.cv.cloud.AssumptionByID(target.id); as != nil {
+			as.Evidence = strings.TrimSpace(value)
+		}
+		return a.persist()
 	}
 	return nil
+}
+
+// selectAssumption puts the cursor on an assumption wherever it sorts.
+func (a *App) selectAssumption(id string) {
+	for i, row := range a.assumptionRows() {
+		if row.id == id {
+			a.cv.assumptionCursor = i
+			return
+		}
+	}
 }
 
 // persist saves the open cloud and refreshes its library row.
@@ -427,7 +611,7 @@ func (a *App) renderHeader() string {
 		c := a.cv.cloud
 		filled, total := c.Progress()
 		right = a.styles.StatusStyle(c.Status()).Render(c.Status().Glyph()+" "+c.Status().String()) +
-			a.styles.Faint.Render(fmt.Sprintf("  %d/%d", filled, total))
+			a.styles.Faint.Render(fmt.Sprintf("  %d/%d · %d asm", filled, total, len(c.Assumptions)))
 
 	default:
 		right = a.styles.Faint.Render(plural(len(a.lib.clouds), "cloud", "clouds"))
@@ -450,6 +634,17 @@ func (a *App) renderFooter() string {
 				{"d", "delete"},
 				{"?", "help"},
 				{"q", "quit"},
+			}
+		} else if a.cv.pane == paneAssumptions {
+			items = []hint{
+				{"↑/k ↓/j", "move"},
+				{"a", "add"},
+				{"enter", "edit"},
+				{"v", "verdict"},
+				{"e", "evidence"},
+				{"x", "delete"},
+				{"tab", "pane"},
+				{"esc/q", "back"},
 			}
 		} else {
 			items = []hint{
@@ -476,6 +671,20 @@ func (a *App) renderFooter() string {
 func (a *App) contextLine() string {
 	if a.screen == screenCloud && a.cv.pane == paneCloud {
 		return "Read down: in order to satisfy a node, the nodes beneath it must hold. The × is the conflict."
+	}
+	if a.screen == screenCloud && a.cv.pane == paneAssumptions {
+		row, ok := a.selectedAssumptionRow()
+		if !ok {
+			return ""
+		}
+		if row.id != "" {
+			if as := a.cv.cloud.AssumptionByID(row.id); as != nil {
+				if evidence := strings.TrimSpace(as.Evidence); evidence != "" {
+					return "Evidence: " + evidence
+				}
+			}
+		}
+		return row.arrow.Reading(&a.cv.cloud)
 	}
 	if a.screen == screenCloud {
 		infos := SlotInfos()
