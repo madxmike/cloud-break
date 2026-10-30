@@ -30,11 +30,26 @@ B you must do D, and in order to satisfy C you must do D'. The `×` is the
 conflict. The ledger under the figure counts the assumptions on each arrow,
 coloured by the weakest verdict among them.
 
-## Running it
+## Installation
+
+```sh
+go install github.com/madxmike/cloud-break@latest
+```
+
+Prebuilt binaries for Linux, macOS and Windows (amd64 and arm64) are on the
+[releases page](https://github.com/madxmike/cloud-break/releases). Building from
+source is just:
 
 ```sh
 go build -o cloud-break .
-./cloud-break
+```
+
+## Running it
+
+```sh
+cloud-break              # opens the library
+cloud-break -dir ./clouds
+cloud-break -version
 ```
 
 Clouds live in one JSON file each, under the first of:
@@ -94,3 +109,7 @@ bottom border.
 
 The package is deliberately flat: one `package main` at the repository root,
 one file per concern (shell, library, cloud screen, domain, storage, editor).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
