@@ -1,0 +1,17 @@
+{
+  "id": "ship-on-friday",
+  "title": "Ship on Friday",
+  "parties": [
+    "Engineering",
+    "Sales"
+  ],
+  "statements": {
+    "A": "ship on the promised date",
+    "B": "no regressions in production",
+    "C": "every committed feature ships",
+    "D": "freeze the code until release",
+    "D'": "keep merging features until release"
+  },
+  "created": "2026-10-28T09:00:00Z",
+  "updated": "2026-10-28T09:00:00Z"
+}

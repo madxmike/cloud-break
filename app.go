@@ -201,7 +201,7 @@ func (a *App) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case match(msg, "n"):
 		a.pendingNew = true
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "New cloud",
-			"Name the conflict, not the solution you have in mind.", "", a.width, false)
+			"The conflict itself, not a proposed solution.", "", a.width, false)
 
 	case match(msg, "d"):
 		if c, ok := a.lib.selected(); ok {

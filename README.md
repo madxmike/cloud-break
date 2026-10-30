@@ -30,6 +30,19 @@ B you must do D, and in order to satisfy C you must do D'. The `×` is the
 conflict. The ledger under the figure counts the assumptions on each arrow,
 coloured by the weakest verdict among them.
 
+## See it
+
+Building a cloud from an empty library:
+
+![Building an evaporating cloud](examples/build/.vhs/demo.gif)
+
+Challenging the assumptions of a complete cloud until one breaks:
+
+![Dissolving an evaporating cloud](examples/dissolve/.vhs/demo.gif)
+
+Both recordings are generated from the tapes in [`examples/`](examples), which
+also documents how to re-record them.
+
 ## Installation
 
 ```sh
