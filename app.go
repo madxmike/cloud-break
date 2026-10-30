@@ -234,6 +234,12 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case match(msg, "3"):
 		a.cv.pane = paneAssumptions
 
+	case match(msg, "4"):
+		a.cv.pane = paneInjections
+
+	case match(msg, "5"):
+		a.cv.pane = paneProcess
+
 	case match(msg, "up", "k"):
 		a.moveCursor(-1)
 
@@ -244,16 +250,25 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, a.activate()
 
 	case match(msg, "a"):
-		return a, a.addAssumption()
+		return a, a.add()
+
+	case match(msg, "i"):
+		return a, a.injectAgainstSelected()
+
+	case match(msg, "r"):
+		return a, a.editInjectionRationale()
 
 	case match(msg, "v"):
 		return a, a.cycleVerdict()
+
+	case match(msg, "V"):
+		return a, a.toggleVerified()
 
 	case match(msg, "e"):
 		return a, a.editEvidence()
 
 	case match(msg, "x"):
-		return a, a.askDeleteAssumption()
+		return a, a.deleteSelected()
 
 	case match(msg, "t"):
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "Cloud title",
@@ -275,18 +290,25 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
-	if a.cv.pane == paneAssumptions {
+	switch a.cv.pane {
+	case paneAssumptions:
 		last := len(a.assumptionRows()) - 1
 		a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor+delta, last))
-		return
+	case paneInjections:
+		last := len(a.cv.cloud.Injections) - 1
+		a.cv.injectionCursor = max(0, min(a.cv.injectionCursor+delta, last))
+	default:
+		a.cv.move(delta, len(SlotInfos()))
 	}
-	a.cv.move(delta, len(SlotInfos()))
 }
 
 // activate handles enter: edit the highlighted statement or assumption.
 func (a *App) activate() tea.Cmd {
-	if a.cv.pane == paneAssumptions {
+	switch a.cv.pane {
+	case paneAssumptions:
 		return a.editAssumption()
+	case paneInjections:
+		return a.editInjection()
 	}
 	if a.cv.pane != paneStatements {
 		a.cv.pane = paneStatements
@@ -328,6 +350,133 @@ func (a *App) addAssumption() tea.Cmd {
 		"", a.width, false)
 }
 
+// add dispatches the add key to whichever pane is open.
+func (a *App) add() tea.Cmd {
+	switch a.cv.pane {
+	case paneAssumptions:
+		return a.addAssumption()
+	case paneInjections:
+		return a.addInjection()
+	}
+	return nil
+}
+
+// deleteSelected dispatches the delete key to whichever pane is open.
+func (a *App) deleteSelected() tea.Cmd {
+	switch a.cv.pane {
+	case paneAssumptions:
+		return a.askDeleteAssumption()
+	case paneInjections:
+		return a.askDeleteInjection()
+	}
+	return nil
+}
+
+// injectAgainstSelected starts an injection against the assumption under the
+// cursor: the step that dissolves a cloud.
+func (a *App) injectAgainstSelected() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	if row.id == "" {
+		return a.setFlash("Pick the assumption to break, not the arrow.", false)
+	}
+	as := a.cv.cloud.AssumptionByID(row.id)
+	if as == nil {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editInjectionText, breaks: []string{as.ID}},
+		fmt.Sprintf("%s · new injection", row.arrow),
+		"What change makes this assumption irrelevant? "+shorten(as.Text, 60),
+		"", a.width, false)
+}
+
+// addInjection starts an injection against the weakest unbroken assumption.
+func (a *App) addInjection() tea.Cmd {
+	if a.cv.pane != paneInjections {
+		return nil
+	}
+	target, ok := a.nextInjectionTarget()
+	if !ok {
+		return a.setFlash("Every assumption already has an injection.", false)
+	}
+	return a.ed.Open(editTarget{kind: editInjectionText, breaks: []string{target.ID}},
+		fmt.Sprintf("%s · new injection", target.Arrow),
+		"Breaking: "+shorten(target.Text, 70),
+		"", a.width, false)
+}
+
+// editInjection opens the selected injection's idea.
+func (a *App) editInjection() tea.Cmd {
+	if a.cv.pane != paneInjections {
+		return nil
+	}
+	injection, ok := a.selectedInjection()
+	if !ok {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editInjectionText, id: injection.ID},
+		"Injection", "The change that makes the broken assumption irrelevant.",
+		injection.Text, a.width, false)
+}
+
+// editInjectionRationale records why the injection works.
+func (a *App) editInjectionRationale() tea.Cmd {
+	if a.cv.pane != paneInjections {
+		return nil
+	}
+	injection, ok := a.selectedInjection()
+	if !ok {
+		return nil
+	}
+	return a.ed.Open(editTarget{kind: editInjectionRationale, id: injection.ID},
+		"Injection · why it works", "Does it reach the objective without breaking anything else?",
+		injection.Rationale, a.width, true)
+}
+
+// askDeleteInjection confirms before removing an injection.
+func (a *App) askDeleteInjection() tea.Cmd {
+	if a.cv.pane != paneInjections {
+		return nil
+	}
+	injection, ok := a.selectedInjection()
+	if !ok {
+		return nil
+	}
+	id, text := injection.ID, injection.Text
+	a.confirm = &confirmation{
+		question: fmt.Sprintf("Delete the injection %q?", shorten(text, 40)),
+		onYes: func(app *App) tea.Cmd {
+			app.cv.cloud.RemoveInjection(id)
+			last := len(app.cv.cloud.Injections) - 1
+			app.cv.injectionCursor = max(0, min(app.cv.injectionCursor, last))
+			return app.persist()
+		},
+	}
+	return nil
+}
+
+// toggleVerified records that a person checked the injection really dissolves
+// the conflict. Status only becomes dissolved once this is set.
+func (a *App) toggleVerified() tea.Cmd {
+	if a.cv.pane != paneProcess && a.cv.pane != paneInjections {
+		return nil
+	}
+	c := &a.cv.cloud
+	if !c.Verified && len(c.BrokenAssumptions()) == 0 {
+		return a.setFlash("Nothing is broken yet: mark an assumption invalid and inject against it.", true)
+	}
+	c.Verified = !c.Verified
+	if c.Verified {
+		return tea.Batch(a.persist(), a.setFlash("Cloud marked as evaporated.", false))
+	}
+	return tea.Batch(a.persist(), a.setFlash("Verification withdrawn.", false))
+}
+
 // arrowHint is the question the arrow is asking.
 func (a *App) arrowHint(arrow Arrow) string {
 	return "What has to be true for this arrow to hold? " + arrow.Reading(&a.cv.cloud)
@@ -343,7 +492,7 @@ func (a *App) cycleVerdict() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("That row is an arrow, not an assumption. Press a to add one.", false)
+		return a.setFlash("That row is an arrow, not an assumption.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -363,7 +512,7 @@ func (a *App) editEvidence() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("That row is an arrow, not an assumption. Press a to add one.", false)
+		return a.setFlash("That row is an arrow, not an assumption.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -447,7 +596,7 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 			}
 			a.lib.upsert(*c)
 			a.openCloud(*c)
-			return a.setFlash("Created "+c.Title+". Start with the objective.", false)
+			return a.setFlash("Created "+c.Title+".", false)
 		}
 		a.cv.cloud.Title = OneLine(value)
 		return a.persist()
@@ -483,6 +632,24 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 	case editAssumptionEvidence:
 		if as := a.cv.cloud.AssumptionByID(target.id); as != nil {
 			as.Evidence = strings.TrimSpace(value)
+		}
+		return a.persist()
+
+	case editInjectionText:
+		if strings.TrimSpace(value) == "" && target.id == "" {
+			return nil
+		}
+		if target.id == "" {
+			id := a.cv.cloud.AddInjection(target.breaks, value)
+			a.selectInjection(id)
+		} else if injection := a.cv.cloud.InjectionByID(target.id); injection != nil {
+			injection.Text = OneLine(value)
+		}
+		return a.persist()
+
+	case editInjectionRationale:
+		if injection := a.cv.cloud.InjectionByID(target.id); injection != nil {
+			injection.Rationale = strings.TrimSpace(value)
 		}
 		return a.persist()
 	}
@@ -635,6 +802,24 @@ func (a *App) renderFooter() string {
 				{"?", "help"},
 				{"q", "quit"},
 			}
+		} else if a.cv.pane == paneInjections {
+			items = []hint{
+				{"↑/k ↓/j", "move"},
+				{"a", "add"},
+				{"enter", "edit"},
+				{"r", "why"},
+				{"x", "delete"},
+				{"V", "verify"},
+				{"tab", "pane"},
+				{"esc/q", "back"},
+			}
+		} else if a.cv.pane == paneProcess {
+			items = []hint{
+				{"V", "verify"},
+				{"tab", "pane"},
+				{"esc/q", "back"},
+				{"?", "help"},
+			}
 		} else if a.cv.pane == paneAssumptions {
 			items = []hint{
 				{"↑/k ↓/j", "move"},
@@ -671,6 +856,21 @@ func (a *App) renderFooter() string {
 func (a *App) contextLine() string {
 	if a.screen == screenCloud && a.cv.pane == paneCloud {
 		return "Read down: in order to satisfy a node, the nodes beneath it must hold. The × is the conflict."
+	}
+	if a.screen == screenCloud && a.cv.pane == paneInjections {
+		if injection, ok := a.selectedInjection(); ok {
+			if broken := a.cv.cloud.BrokenBy(&injection); len(broken) > 0 {
+				return "Breaks: " + broken[0].Arrow.Reading(&a.cv.cloud)
+			}
+			return "This injection breaks no assumption, so the conflict stands."
+		}
+		return ""
+	}
+	if a.screen == screenCloud && a.cv.pane == paneProcess {
+		if issue := a.cv.cloud.Validate(); len(issue) > 0 {
+			return plural(len(issue), "issue remains.", "issues remain.")
+		}
+		return "No open issues."
 	}
 	if a.screen == screenCloud && a.cv.pane == paneAssumptions {
 		row, ok := a.selectedAssumptionRow()
@@ -710,11 +910,11 @@ func nextStep(c Cloud) string {
 		for i, s := range missing {
 			names[i] = string(s)
 		}
-		return fmt.Sprintf("%s still empty: %s. Open it and press enter to fill one in.",
+		return fmt.Sprintf("%s still empty: %s.",
 			plural(len(missing), "statement is", "statements are"), strings.Join(names, ", "))
 	}
 	if len(c.Assumptions) == 0 {
-		return "All five statements are set. The assumptions behind each arrow come next."
+		return "All five statements are set. No assumptions surfaced yet."
 	}
 	return plural(len(c.Assumptions), "assumption surfaced.", "assumptions surfaced.")
 }

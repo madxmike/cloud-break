@@ -133,7 +133,7 @@ func TestEmptyLibraryExplainsItself(t *testing.T) {
 	a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a.Update(cloudsLoadedMsg{clouds: nil})
 	view := a.View().Content
-	if !strings.Contains(view, "No clouds yet") || !strings.Contains(view, "Press n") {
+	if !strings.Contains(view, "No clouds yet") || !strings.Contains(view, "shared objective") {
 		t.Errorf("empty view = %q", view)
 	}
 }

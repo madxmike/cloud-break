@@ -17,15 +17,18 @@ const (
 	editParties
 	editAssumptionText
 	editAssumptionEvidence
+	editInjectionText
+	editInjectionRationale
 )
 
 // editTarget identifies the field being edited. It is plain data rather than a
 // closure so the editor stays inspectable and testable.
 type editTarget struct {
-	kind  editKind
-	slot  Slot
-	id    string // assumption being edited, empty when adding one
-	arrow Arrow  // arrow a new assumption belongs to
+	kind   editKind
+	slot   Slot
+	id     string   // record being edited, empty when adding one
+	arrow  Arrow    // arrow a new assumption belongs to
+	breaks []string // assumptions a new injection invalidates
 }
 
 // editResult is the outcome of one key press inside the editor.

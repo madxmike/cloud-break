@@ -138,7 +138,7 @@ func (a *App) renderEmptyLibrary() string {
 	w := min(a.width-8, 58)
 	blocks := []string{
 		a.styles.Title.Render("No clouds yet."),
-		a.styles.Dim.Width(w).Render("Press n to state a conflict you are stuck in."),
+		a.styles.Dim.Width(w).Render("A cloud states a conflict as five statements, then breaks it by invalidating an assumption."),
 		a.styles.Subtle.Width(w).Render(
 			"A cloud is five statements: a shared objective, one need per side, and the two wants that collide. " +
 				"You then surface the assumptions behind them until one of them breaks."),

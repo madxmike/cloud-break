@@ -569,7 +569,7 @@ func (c *Cloud) Steps() []Step {
 		{
 			Number: 2,
 			Title:  "Surface the assumptions",
-			Hint:   fmt.Sprintf("%d of 5 arrows carry a \"because ...\".", covered),
+			Hint:   fmt.Sprintf("Assumptions surfaced on %d of 5 arrows.", covered),
 			Done:   covered == len(Arrows()),
 		},
 		{

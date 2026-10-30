@@ -107,13 +107,25 @@ func TestPaneCycle(t *testing.T) {
 	if got := paneCloud.next(1); got != paneAssumptions {
 		t.Errorf("cloud.next(1) = %v", got)
 	}
-	if got := paneAssumptions.next(1); got != paneStatements {
-		t.Errorf("assumptions.next(1) = %v, want wrap", got)
+	if got := paneAssumptions.next(1); got != paneInjections {
+		t.Errorf("assumptions.next(1) = %v", got)
 	}
-	if got := paneStatements.next(-1); got != paneAssumptions {
+	if got := paneInjections.next(1); got != paneProcess {
+		t.Errorf("injections.next(1) = %v", got)
+	}
+	if got := paneProcess.next(1); got != paneStatements {
+		t.Errorf("process.next(1) = %v, want wrap", got)
+	}
+	if got := paneStatements.next(-1); got != paneProcess {
 		t.Errorf("statements.next(-1) = %v, want wrap", got)
 	}
-	for want, p := range map[string]pane{"statements": paneStatements, "cloud": paneCloud, "assumptions": paneAssumptions} {
+	for want, p := range map[string]pane{
+		"statements":  paneStatements,
+		"cloud":       paneCloud,
+		"assumptions": paneAssumptions,
+		"injections":  paneInjections,
+		"process":     paneProcess,
+	} {
 		if got := p.String(); got != want {
 			t.Errorf("String = %q, want %q", got, want)
 		}
@@ -460,5 +472,176 @@ func TestAssumptionCursorStaysInRange(t *testing.T) {
 	}
 	if a.cv.assumptionCursor != 0 {
 		t.Errorf("cursor = %d, want 0", a.cv.assumptionCursor)
+	}
+}
+
+func typeString(a *App, text string) {
+	for _, r := range text {
+		a.Update(keyMsg(string(r)))
+	}
+}
+
+func TestInjectAgainstAnAssumption(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
+	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
+	a.selectAssumption(id)
+
+	a.Update(keyMsg("i"))
+	if !a.ed.open {
+		t.Fatal("i did not open the injection editor")
+	}
+	typeString(a, "pair every change with a regression test")
+	a.Update(keyMsg("enter"))
+
+	if len(a.cv.cloud.Injections) != 1 {
+		t.Fatalf("injections = %d, want 1", len(a.cv.cloud.Injections))
+	}
+	injection := a.cv.cloud.Injections[0]
+	if len(injection.Breaks) != 1 || injection.Breaks[0] != id {
+		t.Errorf("injection breaks %v, want the selected assumption", injection.Breaks)
+	}
+	if got := a.cv.cloud.Status(); got != StatusDissolving {
+		t.Errorf("status = %v, want dissolving until verified", got)
+	}
+
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(saved.Injections) != 1 || saved.Injections[0].Text != injection.Text {
+		t.Errorf("not persisted: %+v", saved.Injections)
+	}
+}
+
+func TestAddInjectionTargetsTheWeakestAssumption(t *testing.T) {
+	a := openAssumptions(t)
+	strong := a.cv.cloud.AddAssumption(ArrowAC, "the registry is authoritative")
+	a.cv.cloud.AssumptionByID(strong).Verdict = Holds
+	weak := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.cv.cloud.AssumptionByID(weak).Verdict = Invalid
+
+	a.cv.pane = paneInjections
+	a.Update(keyMsg("a"))
+	typeString(a, "automate the review")
+	a.Update(keyMsg("enter"))
+
+	if len(a.cv.cloud.Injections) != 1 {
+		t.Fatalf("injections = %d, want 1", len(a.cv.cloud.Injections))
+	}
+	if got := a.cv.cloud.Injections[0].Breaks; len(got) != 1 || got[0] != weak {
+		t.Errorf("injection breaks %v, want the invalid assumption", got)
+	}
+}
+
+func TestAddInjectionWhenEverythingIsBroken(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.cv.cloud.AddInjection([]string{id}, "automate the review")
+
+	a.cv.pane = paneInjections
+	a.Update(keyMsg("a"))
+	if a.ed.open {
+		t.Error("the editor opened with nothing left to break")
+	}
+	if a.flash.text == "" {
+		t.Error("no explanation when there is nothing to inject against")
+	}
+}
+
+func TestInjectionRationaleIsSaved(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+
+	a.cv.pane = paneInjections
+	a.selectInjection(injectionID)
+	a.Update(keyMsg("r"))
+	if !a.ed.open {
+		t.Fatal("r did not open the rationale editor")
+	}
+	typeString(a, "the test outlives the review")
+	a.Update(keyMsg("ctrl+s"))
+
+	if got := a.cv.cloud.InjectionByID(injectionID).Rationale; got != "the test outlives the review" {
+		t.Errorf("rationale = %q", got)
+	}
+}
+
+func TestDeleteInjectionNeedsConfirmation(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+
+	a.cv.pane = paneInjections
+	a.selectInjection(injectionID)
+
+	a.Update(keyMsg("x"))
+	if a.confirm == nil {
+		t.Fatal("x did not ask for confirmation")
+	}
+	a.Update(keyMsg("n"))
+	if a.cv.cloud.InjectionByID(injectionID) == nil {
+		t.Fatal("n deleted the injection anyway")
+	}
+
+	a.Update(keyMsg("x"))
+	a.Update(keyMsg("y"))
+	if a.cv.cloud.InjectionByID(injectionID) != nil {
+		t.Error("y did not delete the injection")
+	}
+}
+
+func TestVerificationRequiresABrokenAssumption(t *testing.T) {
+	a := openAssumptions(t)
+	a.cv.pane = paneProcess
+
+	a.Update(keyMsg("V"))
+	if a.cv.cloud.Verified {
+		t.Error("verified a cloud where nothing is broken")
+	}
+	if a.flash.text == "" {
+		t.Error("no explanation for refusing to verify")
+	}
+}
+
+func TestVerificationDissolvesTheCloud(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
+	a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.cv.pane = paneProcess
+
+	a.Update(keyMsg("V"))
+	if !a.cv.cloud.Verified {
+		t.Fatal("V did not verify the cloud")
+	}
+	if got := a.cv.cloud.Status(); got != StatusDissolved {
+		t.Errorf("status = %v, want dissolved", got)
+	}
+
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !saved.Verified {
+		t.Error("verification not persisted")
+	}
+
+	a.Update(keyMsg("V"))
+	if a.cv.cloud.Verified {
+		t.Error("V did not withdraw the verification")
+	}
+}
+
+func TestProcessPaneShowsStepsAndIssues(t *testing.T) {
+	a := openAssumptions(t)
+	a.cv.pane = paneProcess
+	view := ansi.Strip(a.View().Content)
+
+	for _, want := range []string{"Process", "1. State the conflict", "[x]", "Issues", "no assumptions yet"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("process pane missing %q:\n%s", want, view)
+		}
 	}
 }

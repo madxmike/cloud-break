@@ -15,10 +15,12 @@ const (
 	paneStatements pane = iota
 	paneCloud
 	paneAssumptions
+	paneInjections
+	paneProcess
 )
 
 // cloudPanes is the switch order for the pane keys.
-var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions}
+var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions, paneInjections, paneProcess}
 
 func (p pane) String() string {
 	switch p {
@@ -26,6 +28,10 @@ func (p pane) String() string {
 		return "cloud"
 	case paneAssumptions:
 		return "assumptions"
+	case paneInjections:
+		return "injections"
+	case paneProcess:
+		return "process"
 	}
 	return "statements"
 }
@@ -49,6 +55,7 @@ type cloudScreen struct {
 	pane             pane
 	cursor           int // statement slot
 	assumptionCursor int // row in the assumptions pane
+	injectionCursor  int // row in the injections pane
 }
 
 func newCloudScreen(c Cloud) cloudScreen { return cloudScreen{cloud: c} }
@@ -91,6 +98,10 @@ func (a *App) renderPane(width, height int) string {
 		return a.renderDiagramPane(width, height)
 	case paneAssumptions:
 		return a.renderAssumptions(width, height)
+	case paneInjections:
+		return a.renderInjections(width, height)
+	case paneProcess:
+		return a.renderProcess(width, height)
 	default:
 		return a.renderStatements(width, height)
 	}
@@ -215,6 +226,147 @@ func (a *App) assumptionText(as Assumption, selected bool, width int) string {
 		text = a.styles.Strong
 	}
 	return fitLine(marker+glyph+" "+text.Render(truncate(as.Text, room))+evidence, width)
+}
+
+// renderInjections lists the breakthroughs and what each one breaks.
+func (a *App) renderInjections(width, height int) string {
+	injections := a.cv.cloud.Injections
+	if len(injections) == 0 {
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
+			a.styles.Dim.Width(min(width, 50)).Align(lipgloss.Center).
+				Render("No injections yet.\n\nAn injection breaks an invalid assumption."))
+	}
+
+	selected := max(0, min(a.cv.injectionCursor, len(injections)-1))
+	blocks := make([]string, len(injections))
+	heights := make([]int, len(injections))
+	for i, injection := range injections {
+		blocks[i] = a.injectionBlock(injection, i == selected, width)
+		heights[i] = lipgloss.Height(blocks[i])
+	}
+
+	start, end := visibleRange(heights, selected, height)
+	return strings.Join(blocks[start:end], "\n")
+}
+
+// injectionBlock renders one breakthrough: the idea, what it breaks, and why.
+func (a *App) injectionBlock(injection Injection, selected bool, width int) string {
+	marker := "  "
+	if selected {
+		marker = "▸ "
+	}
+
+	text := a.styles.CardValue
+	if selected {
+		text = a.styles.Strong
+	}
+	head := marker + a.styles.Warning.Render("⚡") + " " +
+		text.Render(truncate(injection.Text, max(8, width-6)))
+
+	indent := " " + strings.Repeat(" ", lipgloss.Width(marker)+2)
+	room := max(8, width-lipgloss.Width(indent)-2)
+
+	broken := a.cv.cloud.BrokenBy(&injection)
+	summary := "breaks nothing yet, so it cannot evaporate anything"
+	if len(broken) > 0 {
+		parts := make([]string, 0, len(broken))
+		for _, as := range broken {
+			parts = append(parts, fmt.Sprintf("%s (%s)", as.Arrow, as.Verdict))
+		}
+		summary = "breaks " + strings.Join(parts, ", ")
+	}
+
+	rows := []string{
+		fitLine(head, width),
+		fitLine(indent+a.styles.Faint.Render(truncate(summary, room)), width),
+	}
+	if rationale := strings.TrimSpace(injection.Rationale); rationale != "" {
+		rows = append(rows, fitLine(indent+a.styles.Dim.Render(truncate("why: "+rationale, room)), width))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// nextInjectionTarget picks the assumption most worth injecting against: the
+// weakest one that nothing has broken yet.
+func (a *App) nextInjectionTarget() (Assumption, bool) {
+	c := &a.cv.cloud
+	if weak := c.Weakest(); weak != nil && c.InjectionBreaking(weak.ID) == nil {
+		return *weak, true
+	}
+	for _, as := range c.Assumptions {
+		if c.InjectionBreaking(as.ID) == nil {
+			return as, true
+		}
+	}
+	return Assumption{}, false
+}
+
+// selectedInjection is the injection under the cursor.
+func (a *App) selectedInjection() (Injection, bool) {
+	injections := a.cv.cloud.Injections
+	if len(injections) == 0 {
+		return Injection{}, false
+	}
+	index := max(0, min(a.cv.injectionCursor, len(injections)-1))
+	return injections[index], true
+}
+
+// selectInjection moves the cursor onto an injection.
+func (a *App) selectInjection(id string) {
+	for i, injection := range a.cv.cloud.Injections {
+		if injection.ID == id {
+			a.cv.injectionCursor = i
+			return
+		}
+	}
+}
+
+// renderProcess shows the five-stage method and whatever still stands in the way.
+func (a *App) renderProcess(width, height int) string {
+	c := &a.cv.cloud
+	var lines []string
+
+	lines = append(lines, " "+a.styles.HelpSection.Render("Process"))
+	for _, step := range c.Steps() {
+		mark := a.styles.Faint.Render("[ ]")
+		title := a.styles.Strong.Render(fmt.Sprintf("%d. %s", step.Number, step.Title))
+		if step.Done {
+			mark = a.styles.Success.Render("[x]")
+			title = a.styles.Dim.Render(fmt.Sprintf("%d. %s", step.Number, step.Title))
+		}
+		lines = append(lines, " "+mark+" "+title)
+		lines = append(lines, "       "+a.styles.Faint.Render(truncate(step.Hint, max(8, width-9))))
+	}
+
+	if issues := c.Validate(); len(issues) > 0 {
+		lines = append(lines, "", " "+a.styles.HelpSection.Render("Issues"))
+		for _, issue := range issues {
+			lines = append(lines, " "+a.severityMark(issue.Severity)+" "+
+				a.styles.Dim.Render(truncate(issue.Message, max(8, width-5))))
+		}
+	}
+
+	lines = append(lines, "")
+	switch {
+	case c.Verified:
+		lines = append(lines, " "+a.styles.Success.Render("Verified: this cloud is marked as evaporated."))
+	case len(c.BrokenAssumptions()) > 0:
+		lines = append(lines, " "+a.styles.Faint.Render("An assumption is broken and an injection answers it. Not yet verified."))
+	default:
+		lines = append(lines, " "+a.styles.Faint.Render("Nothing is broken yet, so there is nothing to verify."))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// severityMark is the glyph for a validation finding.
+func (a *App) severityMark(severity Severity) string {
+	switch severity {
+	case SeverityError:
+		return a.styles.Danger.Render("✗")
+	case SeverityWarning:
+		return a.styles.Warning.Render("⚠")
+	}
+	return a.styles.Info.Render("ℹ")
 }
 
 // renderStatements draws the five statement cards, scrolled to the cursor.
