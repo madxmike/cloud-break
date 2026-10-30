@@ -227,7 +227,23 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.cv.move(1, count)
 
 	case match(msg, "enter"):
+		if a.cv.pane != paneStatements {
+			a.cv.pane = paneStatements
+			return a, nil
+		}
 		return a, a.editSlot()
+
+	case match(msg, "tab"):
+		a.cv.pane = a.cv.pane.next(1)
+
+	case match(msg, "shift+tab"):
+		a.cv.pane = a.cv.pane.next(-1)
+
+	case match(msg, "1"):
+		a.cv.pane = paneStatements
+
+	case match(msg, "2"):
+		a.cv.pane = paneCloud
 
 	case match(msg, "t"):
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "Cloud title",
@@ -391,7 +407,9 @@ func (a *App) renderHeader() string {
 	left := a.styles.Title.Render("cloud-break")
 	if a.screen == screenCloud {
 		left += a.styles.Faint.Render("  ·  ") +
-			a.styles.Strong.Render(truncate(a.cv.cloud.Title, 48))
+			a.styles.Strong.Render(truncate(a.cv.cloud.Title, 40)) +
+			a.styles.Faint.Render("  ·  ") +
+			a.styles.Dim.Render(a.cv.pane.String())
 	} else {
 		left += a.styles.Faint.Render("  ·  library")
 	}
@@ -437,8 +455,8 @@ func (a *App) renderFooter() string {
 			items = []hint{
 				{"↑/k ↓/j", "slot"},
 				{"enter", "edit"},
+				{"tab", "pane"},
 				{"t", "title"},
-				{"s", "sides"},
 				{"esc/q", "back"},
 				{"?", "help"},
 			}
@@ -456,6 +474,9 @@ func (a *App) renderFooter() string {
 // contextLine explains the current selection: the question a slot is asking,
 // or what the highlighted cloud still needs.
 func (a *App) contextLine() string {
+	if a.screen == screenCloud && a.cv.pane == paneCloud {
+		return "Read down: in order to satisfy a node, the nodes beneath it must hold. The × is the conflict."
+	}
 	if a.screen == screenCloud {
 		infos := SlotInfos()
 		if a.cv.cursor >= 0 && a.cv.cursor < len(infos) {
@@ -539,7 +560,7 @@ func (a *App) helpSheet(content string, withFooter bool) string {
 	inner := strings.Join(blocks, "\n\n")
 
 	width := 0
-	for _, line := range strings.Split(inner, "\n") {
+	for line := range strings.SplitSeq(inner, "\n") {
 		width = max(width, lipgloss.Width(line))
 	}
 	width = min(width, max(20, a.width-boxFrame-2))
@@ -607,12 +628,14 @@ func sumInts(values []int) int {
 
 // fitLines clips or pads a block to exactly height lines of at most width.
 func fitLines(block string, height, width int) []string {
-	raw := strings.Split(block, "\n")
 	out := make([]string, height)
-	for i := range height {
-		if i < len(raw) {
-			out[i] = fitLine(raw[i], width)
+	row := 0
+	for line := range strings.SplitSeq(block, "\n") {
+		if row >= height {
+			break
 		}
+		out[row] = fitLine(line, width)
+		row++
 	}
 	return out
 }

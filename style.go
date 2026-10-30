@@ -25,6 +25,11 @@ type Styles struct {
 	Info    lipgloss.Style
 	Subtle  lipgloss.Style
 
+	// SideOne and SideTwo colour the two parties, so the diagram and the
+	// assumption lists agree on who is who.
+	SideOne lipgloss.Style
+	SideTwo lipgloss.Style
+
 	HeaderRule lipgloss.Style
 	FootKey    lipgloss.Style
 	FootDesc   lipgloss.Style
@@ -72,6 +77,8 @@ func NewStyles(isDark bool) Styles {
 		success = ld(lipgloss.Color("#15803D"), lipgloss.Color("#4ADE80"))
 		info    = ld(lipgloss.Color("#1D4ED8"), lipgloss.Color("#60A5FA"))
 		border  = ld(lipgloss.Color("#D4D4D8"), lipgloss.Color("#3F3F46"))
+		sideOne = ld(lipgloss.Color("#1D4ED8"), lipgloss.Color("#60A5FA"))
+		sideTwo = ld(lipgloss.Color("#A21CAF"), lipgloss.Color("#E879F9"))
 		select_ = ld(lipgloss.Color("#EDE9FE"), lipgloss.Color("#2E1065"))
 	)
 
@@ -101,6 +108,8 @@ func NewStyles(isDark bool) Styles {
 		Success: fg(success),
 		Info:    fg(info),
 		Subtle:  fg(muted).Italic(true),
+		SideOne: fg(sideOne),
+		SideTwo: fg(sideTwo),
 
 		HeaderRule: fg(border),
 		FootKey:    fg(accent).Bold(true),
@@ -118,8 +127,13 @@ func NewStyles(isDark bool) Styles {
 		RowSelected: lipgloss.NewStyle().Background(select_).Bold(true),
 		RowMeta:     fg(muted),
 
-		EditorBox:   box(),
-		HelpBox:     box(),
+		EditorBox: box(),
+		// The help sheet is dense, so it spends its rows on keys rather than
+		// on vertical padding.
+		HelpBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accent).
+			Padding(0, 2),
 		HelpSection: fg(accent).Bold(true),
 		HelpKey:     fg(accent),
 		HelpDesc:    fg(muted),

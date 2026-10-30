@@ -59,6 +59,7 @@ func helpSections() []helpSection {
 				{"↑/k", "previous slot"},
 				{"↓/j", "next slot"},
 				{"enter", "edit statement"},
+				{"tab", "switch pane"},
 				{"t", "rename cloud"},
 				{"s", "name sides"},
 				{"esc/q", "back"},
