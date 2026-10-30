@@ -21,33 +21,47 @@ func main() {
 	}
 }
 
-func run(args []string, stdout, stderr io.Writer) error {
+// options are the parsed command line.
+type options struct {
+	dir         string
+	showVersion bool
+}
+
+func parseArgs(args []string, stderr io.Writer) (options, error) {
 	fs := flag.NewFlagSet("cloud-break", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var (
-		dir         = fs.String("dir", "", "library directory (default: $XDG_DATA_HOME/cloud-break)")
-		showVersion = fs.Bool("version", false, "print the version and exit")
-	)
+
+	var opts options
+	fs.StringVar(&opts.dir, "dir", "", "library directory (default: $XDG_DATA_HOME/cloud-break)")
+	fs.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "cloud-break %s - build and process evaporating clouds\n\n", version)
 		fmt.Fprintln(stderr, "usage: cloud-break [flags]")
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
 	}
+
 	if err := fs.Parse(args); err != nil {
+		return options{}, err
+	}
+	return opts, nil
+}
+
+func run(args []string, stdout, stderr io.Writer) error {
+	opts, err := parseArgs(args, stderr)
+	if err != nil {
 		return err
 	}
-	if *showVersion {
+	if opts.showVersion {
 		fmt.Fprintln(stdout, "cloud-break", version)
 		return nil
 	}
 
-	lib, err := libraryDir(*dir)
+	store, err := OpenStore(opts.dir)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "cloud-break %s\nlibrary: %s\n", version, lib)
-	return nil
+	return runTUI(store)
 }
 
 // libraryDir resolves where clouds live: the flag, then $CLOUD_BREAK_HOME,

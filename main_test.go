@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,37 +63,34 @@ func TestLibraryDirPrecedence(t *testing.T) {
 	})
 }
 
-func TestRunVersion(t *testing.T) {
+func TestParseArgs(t *testing.T) {
+	var stderr bytes.Buffer
+
+	opts, err := parseArgs([]string{"-dir", "/tmp/lib", "-version"}, &stderr)
+	if err != nil {
+		t.Fatalf("parseArgs: %v", err)
+	}
+	if opts.dir != "/tmp/lib" {
+		t.Errorf("dir = %q", opts.dir)
+	}
+	if !opts.showVersion {
+		t.Error("showVersion not set")
+	}
+
+	if _, err := parseArgs([]string{"-nope"}, &stderr); err == nil {
+		t.Error("unknown flag was accepted")
+	}
+	if !strings.Contains(stderr.String(), "usage: cloud-break") {
+		t.Errorf("usage not printed, stderr = %q", stderr.String())
+	}
+}
+
+func TestRunVersionNeedsNoTerminal(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	if err := run([]string{"-version"}, &out, &errBuf); err != nil {
 		t.Fatalf("run: %v (stderr %s)", err, errBuf.String())
 	}
 	if !strings.Contains(out.String(), version) {
 		t.Errorf("output %q does not mention version %q", out.String(), version)
-	}
-}
-
-func TestRunReportsLibraryDir(t *testing.T) {
-	dir := t.TempDir()
-	var out, errBuf bytes.Buffer
-	if err := run([]string{"-dir", dir}, &out, &errBuf); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if !strings.Contains(out.String(), dir) {
-		t.Errorf("output %q does not mention %q", out.String(), dir)
-	}
-}
-
-func TestRunRejectsUnknownFlag(t *testing.T) {
-	var out, errBuf bytes.Buffer
-	if err := run([]string{"-nope"}, &out, &errBuf); err == nil {
-		t.Error("unknown flag was accepted")
-	}
-}
-
-func TestMainEntrypointExists(t *testing.T) {
-	// Guard against a run() that is never reachable from main.
-	if _, err := os.Stat("main.go"); err != nil {
-		t.Fatalf("main.go missing: %v", err)
 	}
 }
