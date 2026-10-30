@@ -39,15 +39,15 @@ type helpSection struct {
 	items []hint
 }
 
-// helpSections is the full key reference.
+// helpSections is the key reference. It stays short enough to fit a normal
+// terminal; each pane's footer carries the keys specific to that pane.
 func helpSections() []helpSection {
 	return []helpSection{
 		{
 			title: "Library",
 			items: []hint{
-				{"↑/k", "move up"},
-				{"↓/j", "move down"},
-				{"enter", "open the cloud"},
+				{"↑/k ↓/j", "move"},
+				{"enter", "open"},
 				{"n", "new cloud"},
 				{"d", "delete cloud"},
 				{"q", "quit"},
@@ -58,12 +58,11 @@ func helpSections() []helpSection {
 			items: []hint{
 				{"↑/k ↓/j", "move"},
 				{"enter", "edit"},
-				{"a", "add assumption"},
-				{"v", "cycle verdict"},
-				{"e", "evidence"},
-				{"x", "delete assumption"},
+				{"a", "add"},
+				{"i", "inject"},
+				{"v", "verdict"},
+				{"V", "verify"},
 				{"tab", "switch pane"},
-				{"t", "rename cloud"},
 				{"esc/q", "back"},
 			},
 		},

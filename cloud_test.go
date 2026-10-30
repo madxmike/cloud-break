@@ -482,3 +482,54 @@ func TestJSONToleratesMissingFields(t *testing.T) {
 		t.Errorf("default party = %q", got)
 	}
 }
+
+func TestVerdictJSONIsReadable(t *testing.T) {
+	data, err := json.Marshal(Invalid)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(data) != `"invalid"` {
+		t.Errorf("marshalled verdict = %s, want \"invalid\"", data)
+	}
+
+	for _, tc := range []struct {
+		raw  string
+		want Verdict
+	}{
+		{`"holds"`, Holds},
+		{`"questionable"`, Questionable},
+		{`"invalid"`, Invalid},
+		{`"unassessed"`, Unassessed},
+		{`"something else"`, Unassessed},
+		{`2`, Questionable}, // files written by earlier versions
+		{`99`, Unassessed},
+	} {
+		var got Verdict
+		if err := json.Unmarshal([]byte(tc.raw), &got); err != nil {
+			t.Errorf("unmarshal %s: %v", tc.raw, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("unmarshal %s = %v, want %v", tc.raw, got, tc.want)
+		}
+	}
+
+	var bad Verdict
+	if err := json.Unmarshal([]byte(`true`), &bad); err == nil {
+		t.Error("a boolean was accepted as a verdict")
+	}
+}
+
+func TestCloudFileKeepsReadableVerdicts(t *testing.T) {
+	c := resolved()
+	id := c.AddAssumption(ArrowBD, "review catches everything")
+	c.AssumptionByID(id).Verdict = Invalid
+
+	data, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"verdict":"invalid"`) {
+		t.Errorf("cloud file hides the verdict:\n%s", data)
+	}
+}

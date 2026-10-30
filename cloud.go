@@ -16,6 +16,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -212,6 +213,46 @@ func (v Verdict) Glyph() string {
 // Next cycles to the following verdict, so a single key can move through all
 // four states.
 func (v Verdict) Next() Verdict { return (v + 1) % 4 }
+
+// MarshalJSON writes the verdict as a word. The files are meant to be opened,
+// read and hand-edited, and "invalid" says more than 3.
+func (v Verdict) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.String())
+}
+
+// UnmarshalJSON accepts the words this version writes and the numbers earlier
+// files used, so an existing library keeps loading.
+func (v *Verdict) UnmarshalJSON(data []byte) error {
+	var word string
+	if err := json.Unmarshal(data, &word); err == nil {
+		*v = verdictNamed(word)
+		return nil
+	}
+
+	var number int
+	if err := json.Unmarshal(data, &number); err != nil {
+		return fmt.Errorf("verdict %s: %w", data, err)
+	}
+	if number < 0 || int(Verdict(number)) > int(Invalid) {
+		*v = Unassessed
+		return nil
+	}
+	*v = Verdict(number)
+	return nil
+}
+
+// verdictNamed maps a stored word back to its verdict.
+func verdictNamed(word string) Verdict {
+	switch strings.ToLower(strings.TrimSpace(word)) {
+	case "holds":
+		return Holds
+	case "questionable":
+		return Questionable
+	case "invalid":
+		return Invalid
+	}
+	return Unassessed
+}
 
 // Assumption is one of the hidden "because ..." clauses behind an arrow.
 type Assumption struct {
