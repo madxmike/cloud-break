@@ -569,7 +569,7 @@ func (c *Cloud) Steps() []Step {
 		{
 			Number: 2,
 			Title:  "Surface the assumptions",
-			Hint:   fmt.Sprintf("%d of 5 arrows have a \"because ...\" behind them.", covered),
+			Hint:   fmt.Sprintf("%d of 5 arrows carry a \"because ...\".", covered),
 			Done:   covered == len(Arrows()),
 		},
 		{
@@ -697,6 +697,41 @@ func (c *Cloud) Errors() int {
 
 // OneLine collapses whitespace so a statement fits on one rendered line.
 func OneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// Normalize tidies free text before it is written to disk: statements, titles
+// and injections become single lines, empty statements are dropped, and blank
+// names fall back to their defaults so no reader has to guess.
+func (c *Cloud) Normalize() {
+	c.ensure()
+	c.Title = OneLine(c.Title)
+	if c.Title == "" {
+		c.Title = "Untitled cloud"
+	}
+	c.Parties[0] = OneLine(c.Parties[0])
+	c.Parties[1] = OneLine(c.Parties[1])
+	if c.Parties[0] == "" {
+		c.Parties[0] = DefaultParties[0]
+	}
+	if c.Parties[1] == "" {
+		c.Parties[1] = DefaultParties[1]
+	}
+	for _, info := range SlotInfos() {
+		text := OneLine(c.Statements[info.Slot])
+		if text == "" {
+			delete(c.Statements, info.Slot)
+			continue
+		}
+		c.Statements[info.Slot] = text
+	}
+	for i := range c.Assumptions {
+		c.Assumptions[i].Text = OneLine(c.Assumptions[i].Text)
+		c.Assumptions[i].Evidence = strings.TrimSpace(c.Assumptions[i].Evidence)
+	}
+	for i := range c.Injections {
+		c.Injections[i].Text = OneLine(c.Injections[i].Text)
+		c.Injections[i].Rationale = strings.TrimSpace(c.Injections[i].Rationale)
+	}
+}
 
 func contains(list []string, want string) bool {
 	for _, v := range list {
