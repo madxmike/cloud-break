@@ -249,7 +249,7 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// A digit jumps straight to its pane.
 	for i, binding := range a.keys.Pane {
 		if key.Matches(msg, binding) {
-			a.cv.pane = cloudPanes[i]
+			a.showPane(cloudPanes[i])
 			return a, nil
 		}
 	}
@@ -259,10 +259,10 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.screen = screenLibrary
 
 	case key.Matches(msg, a.keys.NextPane):
-		a.cv.pane = a.cv.pane.next(1)
+		a.showPane(a.cv.pane.next(1))
 
 	case key.Matches(msg, a.keys.PrevPane):
-		a.cv.pane = a.cv.pane.next(-1)
+		a.showPane(a.cv.pane.next(-1))
 
 	case key.Matches(msg, a.keys.NextArrow):
 		a.moveArrow(1)
@@ -316,6 +316,16 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// showPane switches pane, and puts the challenge form back on its first arrow so
+// a stale index can never land somewhere surprising.
+func (a *App) showPane(p pane) {
+	a.cv.pane = p
+	if p == paneChallenge {
+		a.cv.challengeArrow = 0
+		a.cv.challengeAssumption = 0
+	}
+}
+
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
 	if a.cv.pane == paneChallenge {
@@ -336,7 +346,7 @@ func (a *App) moveArrow(delta int) {
 	if len(arrows) == 0 {
 		return
 	}
-	a.cv.challengeArrow = max(0, min(a.cv.challengeArrow+delta, len(arrows)-1))
+	a.cv.challengeArrow = (a.cv.challengeArrow + delta + len(arrows)) % len(arrows)
 	a.cv.challengeAssumption = 0
 }
 
@@ -360,8 +370,7 @@ func (a *App) editClaim() tea.Cmd {
 		return a.addAssumption()
 	}
 	arrow, _ := a.challengeArrow()
-	return a.ed.Open(editTarget{kind: editAssumptionText, id: as.ID, arrow: arrow},
-		fmt.Sprintf("%s · claim", arrow), a.arrowHint(arrow), as.Text, a.width, false)
+	return a.startClaimField(editTarget{kind: editAssumptionText, id: as.ID, arrow: arrow}, as.Text)
 }
 
 // editSelectedRow edits whatever the cursor rests on: an assumption's text, an
@@ -423,8 +432,16 @@ func (a *App) addAssumption() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	return a.ed.Open(editTarget{kind: editAssumptionText, id: "", arrow: arrow},
-		fmt.Sprintf("%s · new claim", arrow), a.arrowHint(arrow), "", a.width, false)
+	return a.startClaimField(editTarget{kind: editAssumptionText, id: "", arrow: arrow}, "")
+}
+
+// startClaimField edits a claim where it sits, inside its because slot.
+func (a *App) startClaimField(target editTarget, value string) tea.Cmd {
+	width := a.cv.paneWidth
+	if width <= 0 {
+		width = a.width
+	}
+	return a.inline.Open(target, value, max(8, width-claimTextColumn-1))
 }
 
 // add dispatches the add key to whichever pane is open.
@@ -528,14 +545,6 @@ func (a *App) toggleVerified() tea.Cmd {
 		return tea.Batch(a.persist(), a.setFlash("Cloud marked as evaporated.", false))
 	}
 	return tea.Batch(a.persist(), a.setFlash("Verification withdrawn.", false))
-}
-
-// arrowHint is the question the arrow is asking.
-func (a *App) arrowHint(arrow Arrow) string {
-	if reading := a.arrowReading(arrow); reading != "" {
-		return "What has to be true for this arrow to hold? " + reading
-	}
-	return "What has to be true for this arrow to hold?"
 }
 
 // cycleVerdict moves the selected assumption through the four judgements.

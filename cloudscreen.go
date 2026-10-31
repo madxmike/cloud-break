@@ -178,8 +178,8 @@ func (a *App) renderChallenge(width, height int) string {
 	arrow := arrows[index]
 
 	head := []string{a.challengeStrip(arrows, index, width), ""}
-	for _, line := range strings.Split(a.styles.Dim.Width(max(8, width-2)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
-		head = append(head, " "+line)
+	for _, line := range strings.Split(a.styles.Dim.Width(max(8, width-3)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
+		head = append(head, "  "+line)
 	}
 	head = append(head, "")
 
@@ -192,26 +192,53 @@ func (a *App) renderChallenge(width, height int) string {
 	blocks := make([]string, len(claims))
 	heights := make([]int, len(claims))
 	for i, as := range claims {
-		blocks[i] = a.claimBlock(as, i == selected, width)
+		blocks[i] = a.claimBlock(as, i == selected && !a.addingClaim(), width)
 		heights[i] = lipgloss.Height(blocks[i])
+	}
+
+	if a.addingClaim() {
+		blocks = append(blocks, a.claimField("  ", width))
+		heights = append(heights, lipgloss.Height(blocks[len(blocks)-1]))
 	}
 
 	start, end := visibleRange(heights, selected, max(3, height-len(head)))
 	return strings.Join(append(head, strings.Join(blocks[start:end], "\n")), "\n")
 }
 
-// challengeStrip names each arrow that can be worked on, with the one on screen
-// filled in.
+// challengeStrip is the arrow selector. All five arrows are always shown, so
+// the row never changes shape as statements land: arrows that can be read are
+// normal, the ones still waiting are dim, and the arrow on screen carries the
+// marker and its claim count. The arrows on either end say which keys move.
 func (a *App) challengeStrip(arrows []Arrow, current, width int) string {
-	chips := make([]string, 0, len(arrows))
-	for i, arrow := range arrows {
-		if i == current {
-			chips = append(chips, a.styles.TabActive.Render("▸"+string(arrow)))
-			continue
-		}
-		chips = append(chips, a.styles.Tab.Render(string(arrow)))
+	active, hasActive := a.challengeArrow()
+	ready := make(map[Arrow]bool, len(arrows))
+	for _, arrow := range arrows {
+		ready[arrow] = true
 	}
-	return fitLine(" "+strings.Join(chips, ""), width)
+
+	position := 0
+	parts := make([]string, 0, len(Arrows()))
+	for i, arrow := range Arrows() {
+		label := string(arrow)
+		if count := a.cv.cloud.CountFor(arrow); count > 0 {
+			label = fmt.Sprintf("%s %d", arrow, count)
+		}
+
+		switch {
+		case hasActive && arrow == active:
+			position = i + 1
+			parts = append(parts, a.styles.Accent.Bold(true).Render("▸"+label))
+		case ready[arrow]:
+			parts = append(parts, a.styles.Dim.Render(label))
+		default:
+			parts = append(parts, a.styles.Faint.Render(label))
+		}
+	}
+
+	left := "  " + a.styles.Faint.Render("←") + "  " + strings.Join(parts, a.styles.Faint.Render("   "))
+	right := a.styles.Faint.Render(fmt.Sprintf("%d of %d", position, len(Arrows()))) +
+		"  " + a.styles.Faint.Render("→")
+	return fitLine(spread(left, right, width), width)
 }
 
 // claimTextColumn is where the words start on every labelled row, so the
@@ -229,20 +256,26 @@ func (a *App) claimBlock(as Assumption, selected bool, width int) string {
 	}
 	textWidth := max(8, width-claimTextColumn-1)
 
-	lines := wrapText(as.Text, textWidth, 4)
-	first := marker + a.styles.CardLabel.Render("because") + "   " + textStyle.Render(lines[0])
-	if as.Verdict != Unassessed {
-		verdict := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph() + " " + as.Verdict.String())
-		if room := width - lipgloss.Width(first) - 1; room >= lipgloss.Width(verdict) {
-			first = spread(first, verdict, width)
-		} else {
-			lines = append(lines, verdict)
+	var rows []string
+	if a.claimEditing(as.ID) {
+		a.inline.Resize(textWidth)
+		rows = a.claimFieldLines(marker, width)
+	} else {
+		lines := wrapText(as.Text, textWidth, 4)
+		first := marker + a.styles.CardLabel.Render("because") + "   " + textStyle.Render(lines[0])
+		if as.Verdict != Unassessed {
+			verdict := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph() + " " + as.Verdict.String())
+			if room := width - lipgloss.Width(first) - 1; room >= lipgloss.Width(verdict) {
+				first = spread(first, verdict, width)
+			} else {
+				lines = append(lines, verdict)
+			}
 		}
-	}
 
-	rows := []string{fitLine(first, width)}
-	for _, line := range lines[1:] {
-		rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+textStyle.Render(line), width))
+		rows = append(rows, fitLine(first, width))
+		for _, line := range lines[1:] {
+			rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+textStyle.Render(line), width))
+		}
 	}
 
 	if evidence := strings.TrimSpace(as.Evidence); evidence != "" {
@@ -288,8 +321,37 @@ func (a *App) claimBlock(as Assumption, selected bool, width int) string {
 // emptyClaim is the block shown before the first claim is written: the shape of
 // the work, without any prose around it.
 func (a *App) emptyClaim(width int) string {
+	if a.addingClaim() {
+		return a.claimField("  ", width)
+	}
 	return fitLine("  "+a.styles.CardLabel.Render("because")+"   "+
 		a.styles.CardPrompt.Render("what has to be true for this arrow?"), width)
+}
+
+// claimFieldLines renders the because slot with the inline field inside it, so a
+// claim is typed where it will live.
+func (a *App) claimFieldLines(marker string, width int) []string {
+	lines := strings.Split(a.inline.View(), "\n")
+	rows := []string{fitLine(marker+a.styles.CardLabel.Render("because")+"   "+lines[0], width)}
+	for _, line := range lines[1:] {
+		rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+line, width))
+	}
+	return rows
+}
+
+// claimField is the same thing as a block of its own.
+func (a *App) claimField(marker string, width int) string {
+	return strings.Join(a.claimFieldLines(marker, width), "\n")
+}
+
+// claimEditing reports whether this claim's words are being typed.
+func (a *App) claimEditing(id string) bool {
+	return a.inline.open && a.inline.target.kind == editAssumptionText && a.inline.target.id == id
+}
+
+// addingClaim reports whether a new claim is being typed.
+func (a *App) addingClaim() bool {
+	return a.inline.open && a.inline.target.kind == editAssumptionText && a.inline.target.id == ""
 }
 
 // arrowReading is the necessity sentence, or "" while it could only be made of

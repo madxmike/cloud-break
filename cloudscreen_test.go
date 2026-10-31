@@ -306,8 +306,8 @@ func TestAddClaimToTheArrowOnScreen(t *testing.T) {
 	}
 
 	a.Update(keyMsg("a"))
-	if !a.ed.open {
-		t.Fatal("a did not open the claim editor")
+	if !a.inline.open {
+		t.Fatal("a did not open the claim field")
 	}
 	typeString(a, "review catches every regression")
 	a.Update(keyMsg("enter"))
