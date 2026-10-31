@@ -1,0 +1,50 @@
+{
+  "id": "example-hiring-bar",
+  "title": "Hiring bar",
+  "parties": [
+    "Engineering",
+    "Recruiting"
+  ],
+  "statements": {
+    "A": "build a team that ships",
+    "B": "hires can be trusted with production",
+    "C": "the team grows past its bottlenecks",
+    "D": "require five years of Go",
+    "D'": "hire for potential and teach them"
+  },
+  "assumptions": [
+    {
+      "id": "hb-1",
+      "arrow": "A-B",
+      "text": "a bad hire costs more than a slow hire",
+      "verdict": "holds"
+    },
+    {
+      "id": "hb-2",
+      "arrow": "B-D",
+      "text": "only prior Go experience makes someone productive",
+      "verdict": "invalid",
+      "evidence": "two of the strongest engineers joined with none"
+    },
+    {
+      "id": "hb-3",
+      "arrow": "C-D'",
+      "text": "training costs the team more than it gains",
+      "verdict": "questionable",
+      "evidence": "mentoring took four hours a week for a month"
+    }
+  ],
+  "injections": [
+    {
+      "id": "hb-answer",
+      "breaks": [
+        "hb-2"
+      ],
+      "text": "pair every new hire with a mentor for their first month",
+      "rationale": "the mentor learns the code too"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-30T22:12:16Z",
+  "updated": "2026-10-30T22:42:16Z"
+}

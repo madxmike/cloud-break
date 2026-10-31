@@ -1,0 +1,46 @@
+{
+  "id": "example-tech-debt",
+  "title": "Tech debt quarter",
+  "parties": [
+    "Engineering",
+    "Product"
+  ],
+  "statements": {
+    "A": "keep the product worth paying for",
+    "B": "the codebase can absorb new features quickly",
+    "C": "customers see the features they asked for",
+    "D": "spend the quarter on the payments rewrite",
+    "D'": "spend the quarter on the roadmap"
+  },
+  "assumptions": [
+    {
+      "id": "td-1",
+      "arrow": "A-B",
+      "text": "a slow codebase costs more than a missed feature",
+      "verdict": "holds"
+    },
+    {
+      "id": "td-2",
+      "arrow": "B-D",
+      "text": "the rewrite has to finish before anything new can land",
+      "verdict": "questionable",
+      "evidence": "the last rewrite shipped in six slices with features landing throughout"
+    },
+    {
+      "id": "td-3",
+      "arrow": "C-D'",
+      "text": "every roadmap item is worth more than the rewrite",
+      "verdict": "questionable"
+    },
+    {
+      "id": "td-4",
+      "arrow": "D-D'",
+      "text": "one quarter cannot hold both",
+      "verdict": "holds"
+    }
+  ],
+  "injections": [],
+  "verified": false,
+  "created": "2026-10-31T01:27:16Z",
+  "updated": "2026-10-31T01:57:16Z"
+}

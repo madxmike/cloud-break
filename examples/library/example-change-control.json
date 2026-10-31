@@ -1,0 +1,57 @@
+{
+  "id": "example-change-control",
+  "title": "Change control",
+  "parties": [
+    "Platform",
+    "Compliance"
+  ],
+  "statements": {
+    "A": "ship changes safely and often",
+    "B": "every change can be undone quickly",
+    "C": "every change is provably reviewed",
+    "D": "release on every merge",
+    "D'": "hold each release for the change board"
+  },
+  "assumptions": [
+    {
+      "id": "cc-1",
+      "arrow": "A-B",
+      "text": "a small reversible change is safer than a large batched one",
+      "verdict": "holds"
+    },
+    {
+      "id": "cc-2",
+      "arrow": "A-C",
+      "text": "auditors accept signed artifacts as proof",
+      "verdict": "questionable",
+      "evidence": "the last audit asked for meeting minutes, not signatures"
+    },
+    {
+      "id": "cc-3",
+      "arrow": "B-D",
+      "text": "an automated rollback is faster than any approval",
+      "verdict": "holds",
+      "evidence": "the rollback took 40 seconds the one time it ran"
+    },
+    {
+      "id": "cc-4",
+      "arrow": "C-D'",
+      "text": "only a board can prove a change was approved",
+      "verdict": "invalid",
+      "evidence": "the board approved 214 changes last quarter, 90 seconds each"
+    }
+  ],
+  "injections": [
+    {
+      "id": "cc-answer",
+      "breaks": [
+        "cc-4"
+      ],
+      "text": "sign every build and attach the review to the artifact",
+      "rationale": "the signature outlives the meeting"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-31T02:00:16Z",
+  "updated": "2026-10-31T02:30:16Z"
+}

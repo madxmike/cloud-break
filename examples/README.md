@@ -42,3 +42,23 @@ Or record one:
 ```sh
 vhs examples/dissolve/.vhs/demo.tape
 ```
+
+## Example clouds
+
+[`library/`](library) holds five clouds to browse, one per kind of conflict an
+engineer runs into, each in a different state:
+
+| Cloud | Conflict | State |
+|:--|:--|:--|
+| Change control | release cadence vs the change board | dissolving — a claim is invalid, an answer exists, unverified |
+| Tech debt quarter | the rewrite vs the roadmap | open — four claims, none judged yet |
+| On-call load | paging for everything vs resting the team | dissolved — broken, answered and verified |
+| Hiring bar | years of Go vs potential | dissolving — an answer without a verification |
+| Split the monolith | services vs one deployable | draft — four statements, so two arrows cannot be read |
+
+Copy them into your own library and open them:
+
+```sh
+cp examples/library/*.json "${XDG_DATA_HOME:-$HOME/.local/share}/cloud-break/"
+cloud-break
+```

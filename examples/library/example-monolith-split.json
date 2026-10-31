@@ -1,0 +1,33 @@
+{
+  "id": "example-monolith-split",
+  "title": "Split the monolith",
+  "parties": [
+    "Platform",
+    "Product teams"
+  ],
+  "statements": {
+    "A": "the platform stays easy to change",
+    "B": "any service can deploy on its own",
+    "C": "teams can ship without coordinating",
+    "D": "split the monolith into services"
+  },
+  "assumptions": [
+    {
+      "id": "ms-1",
+      "arrow": "A-B",
+      "text": "independent deploys require separate services",
+      "verdict": "questionable",
+      "evidence": "three teams already deploy the monolith on a shared release train"
+    },
+    {
+      "id": "ms-2",
+      "arrow": "A-C",
+      "text": "coordination cost comes from the deploy, not the codebase",
+      "verdict": "unassessed"
+    }
+  ],
+  "injections": [],
+  "verified": false,
+  "created": "2026-10-30T19:32:16Z",
+  "updated": "2026-10-30T20:02:16Z"
+}

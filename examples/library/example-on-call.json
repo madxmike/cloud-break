@@ -1,0 +1,55 @@
+{
+  "id": "example-on-call",
+  "title": "On-call load",
+  "parties": [
+    "Team",
+    "Management"
+  ],
+  "statements": {
+    "A": "the service stays reliable",
+    "B": "someone can fix a fault when it happens",
+    "C": "the team stays rested enough to think",
+    "D": "page the on-call for every alert",
+    "D'": "let alerts wait until the morning"
+  },
+  "assumptions": [
+    {
+      "id": "oc-1",
+      "arrow": "A-B",
+      "text": "an unrepaired fault becomes an outage within minutes",
+      "verdict": "holds"
+    },
+    {
+      "id": "oc-2",
+      "arrow": "A-C",
+      "text": "tired engineers cause the incidents they then fix",
+      "verdict": "holds"
+    },
+    {
+      "id": "oc-3",
+      "arrow": "B-D",
+      "text": "every alert needs a human at three in the morning",
+      "verdict": "invalid",
+      "evidence": "78% of last quarter's pages were the same three alerts, all fixed by a restart"
+    },
+    {
+      "id": "oc-4",
+      "arrow": "C-D'",
+      "text": "an unread alert is a missed incident",
+      "verdict": "questionable"
+    }
+  ],
+  "injections": [
+    {
+      "id": "oc-answer",
+      "breaks": [
+        "oc-3"
+      ],
+      "text": "auto-remediate the three noisiest alerts and page on the rest",
+      "rationale": "the restart is scripted and safe"
+    }
+  ],
+  "verified": true,
+  "created": "2026-10-30T23:12:16Z",
+  "updated": "2026-10-30T23:42:16Z"
+}
