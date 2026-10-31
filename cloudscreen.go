@@ -153,69 +153,117 @@ func (a *App) assumptionRows() []assumptionRow {
 	return rows
 }
 
-// renderAssumptions draws every arrow with the assumptions behind it.
+// assumptionGroups collects the flat rows into one card per arrow.
+func (a *App) assumptionGroups() [][]assumptionRow {
+	var groups [][]assumptionRow
+	for _, row := range a.assumptionRows() {
+		if row.id == "" {
+			groups = append(groups, []assumptionRow{row})
+			continue
+		}
+		if len(groups) == 0 {
+			continue
+		}
+		last := len(groups) - 1
+		groups[last] = append(groups[last], row)
+	}
+	return groups
+}
+
+// renderAssumptions draws one card per arrow: its sentence, then the
+// assumptions behind it.
 func (a *App) renderAssumptions(width, height int) string {
-	rows := a.assumptionRows()
-	if len(rows) == 0 {
+	groups := a.assumptionGroups()
+	if len(groups) == 0 {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
 			a.styles.Dim.Width(min(width, 46)).Align(lipgloss.Center).
 				Render("No arrows yet.\n\nAn arrow appears once both of its statements are written."))
 	}
 
-	selected := max(0, min(a.cv.assumptionCursor, len(rows)-1))
-	lines := make([]string, len(rows))
-	heights := make([]int, len(rows))
-	for i, row := range rows {
-		lines[i] = a.assumptionLine(row, i == selected, width)
-		heights[i] = lipgloss.Height(lines[i])
+	selected := max(0, min(a.cv.assumptionCursor, len(a.assumptionRows())-1))
+	focusedCard, local := 0, 0
+	seen := 0
+	for i, group := range groups {
+		if selected < seen+len(group) {
+			focusedCard, local = i, selected-seen
+			break
+		}
+		seen += len(group)
 	}
 
-	start, end := visibleRange(heights, selected, height)
-	return strings.Join(lines[start:end], "\n")
+	cards := make([]string, len(groups))
+	heights := make([]int, len(groups))
+	for i, group := range groups {
+		row := -1
+		if i == focusedCard {
+			row = local
+		}
+		cards[i] = a.arrowCard(group[0].arrow, group[1:], row, i == focusedCard, width)
+		heights[i] = lipgloss.Height(cards[i])
+	}
+
+	start, end := visibleRange(heights, focusedCard, height)
+	return strings.Join(cards[start:end], "\n")
 }
 
-func (a *App) assumptionLine(row assumptionRow, selected bool, width int) string {
-	if row.id == "" {
-		return a.arrowHeading(row.arrow, selected, width)
+// arrowCard draws one arrow: the sentence it stands for in the body, the
+// assumptions behind it beneath, and the arrow itself in the border.
+func (a *App) arrowCard(arrow Arrow, assumptions []assumptionRow, selectedRow int, focused bool, width int) string {
+	width = cardWidth(width)
+	inner := width - 4
+
+	borderStyle := a.styles.Faint
+	labelStyle := a.styles.CardLabel
+	if focused {
+		borderStyle = a.styles.Accent
+		labelStyle = a.styles.CardLabelFocused
 	}
-	as := a.cv.cloud.AssumptionByID(row.id)
-	if as == nil {
-		return ""
+
+	label := string(arrow)
+	if count := a.cv.cloud.CountFor(arrow); count > 0 {
+		label = fmt.Sprintf("%s %d", arrow, count)
 	}
-	return a.assumptionText(*as, selected, width)
+	label = truncate(label, max(8, inner-6))
+
+	pad := max(0, width-5-lipgloss.Width(label))
+	lines := []string{
+		borderStyle.Render("╭─ ") + labelStyle.Render(label) +
+			borderStyle.Render(" "+strings.Repeat("─", pad)+"╮"),
+	}
+
+	var body []string
+	if reading := a.arrowReading(arrow); reading != "" {
+		style := a.styles.Dim
+		if focused && selectedRow == 0 {
+			style = a.styles.Strong
+		}
+		body = append(body, style.Width(inner).Render(reading))
+	}
+
+	for i, row := range assumptions {
+		as := a.cv.cloud.AssumptionByID(row.id)
+		if as == nil {
+			continue
+		}
+		body = append(body, a.assumptionText(*as, focused && selectedRow == i+1, inner))
+	}
+
+	if len(body) == 0 {
+		body = append(body, "")
+	}
+
+	for _, block := range body {
+		for line := range strings.SplitSeq(block, "\n") {
+			lines = append(lines,
+				borderStyle.Render("│")+" "+padRight(line, inner)+" "+borderStyle.Render("│"))
+		}
+	}
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	return strings.Join(lines, "\n")
 }
 
 // arrowHeading shows the sentence an arrow stands for, so the "because" being
 // added has a meaning in the argument.
-func (a *App) arrowHeading(arrow Arrow, selected bool, width int) string {
-	badge := a.styles.Accent.Bold(true).Render(string(arrow))
-	if count := a.cv.cloud.CountFor(arrow); count > 0 {
-		badge += a.styles.Faint.Render(fmt.Sprintf(" %d", count))
-	}
-
-	// The row reads the sentence the arrow stands for: "A-B  In order to ...".
-	// Selecting it swaps that sentence in for the short subject, on the same
-	// row, so the list never grows a second line.
-	subject := a.arrowSubject(arrow)
-	style := a.styles.Dim
-	if selected {
-		style = a.styles.Strong
-		if reading := a.arrowReading(arrow); reading != "" {
-			subject = reading
-		}
-	}
-
-	line := " " + badge
-	if subject != "" {
-		room := max(8, width-lipgloss.Width(badge)-4)
-		line = fitLine(line+"  "+style.Render(truncate(subject, room)), width)
-	}
-
-	if selected {
-		return a.styles.RowSelected.Width(width).Render(line)
-	}
-	return line
-}
 
 // indented wraps text to the pane and prefixes every line, so a sentence that
 // needs two rows stays aligned under the row it belongs to.

@@ -193,26 +193,28 @@ func TestLeftAndRightSwitchPanes(t *testing.T) {
 	}
 }
 
-func TestSelectedArrowCarriesItsReading(t *testing.T) {
-	a := newSizedApp(t, 80, 24)
+func TestEveryArrowShowsItsSentenceInFull(t *testing.T) {
+	// Wide enough that no sentence needs wrapping.
+	a := newSizedApp(t, 200, 40)
 	a.Update(keyMsg("enter"))
 	a.Update(keyMsg("3"))
-	// The heading for B-D is the third row.
-	a.Update(keyMsg("down"))
-	a.Update(keyMsg("down"))
 
-	// Wide pane so the sentence is not clipped by the column.
-	plain := ansi.Strip(a.renderAssumptions(200, 20))
-	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
-
-	// No assumptions exist yet, so the pane is one row per arrow.
-	if len(lines) != len(Arrows()) {
-		t.Fatalf("pane is %d rows, want %d (one per arrow):\n%s", len(lines), len(Arrows()), plain)
+	plain := ansi.Strip(a.renderAssumptions(200, 30))
+	if got := strings.Count(plain, "╭─"); got != len(Arrows()) {
+		t.Fatalf("pane has %d arrow cards, want %d:\n%s", got, len(Arrows()), plain)
 	}
 
-	reading := strings.Join(strings.Fields(ArrowBD.Reading(&a.cv.cloud)), " ")
-	if got := strings.Join(strings.Fields(lines[2]), " "); !strings.Contains(got, reading) {
-		t.Errorf("the selected arrow's row does not carry its reading:\n%q", got)
+	// A wrapped sentence is split by the card's borders; drop them before
+	// looking for it as one string.
+	unframed := strings.NewReplacer(
+		"│", " ", "╭", " ", "╮", " ", "╰", " ", "╯", " ", "─", " ",
+	).Replace(plain)
+	flat := strings.Join(strings.Fields(unframed), " ")
+	for _, arrow := range Arrows() {
+		reading := strings.Join(strings.Fields(arrow.Reading(&a.cv.cloud)), " ")
+		if !strings.Contains(flat, reading) {
+			t.Errorf("%s: sentence is not shown in full", arrow)
+		}
 	}
 }
 
