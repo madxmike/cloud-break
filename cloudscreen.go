@@ -239,87 +239,101 @@ func (a *App) currentClaim() (Assumption, bool) {
 	return claims[max(0, min(a.cv.challengeSlot.claim, len(claims)-1))], true
 }
 
-// renderChallenge is the workbench. It opens as a list of arrows; enter on one
-// goes inside it, and the same up and down keys then walk its rows.
+// renderChallenge is one list: the five arrows, with the one under the cursor
+// expanded in place. Enter moves the cursor into that expansion, escape back out
+// to the arrow row, so nothing is ever replaced by another view.
 func (a *App) renderChallenge(width, height int) string {
-	arrow := a.challengeArrow()
-	if a.cv.challengeMode == challengeForm && a.arrowReady(arrow) {
-		return a.renderChallengeForm(arrow, width, height)
-	}
-	return a.renderChallengeList(width)
-}
-
-// renderChallengeList is the five arrows. Every one is listed, dim until its
-// statements exist, so the list keeps its shape and the cursor always moves.
-func (a *App) renderChallengeList(width int) string {
 	current := a.challengeArrow()
 
-	rows := make([]string, 0, len(Arrows()))
-	for _, arrow := range Arrows() {
-		selected := arrow == current
-		ready := a.arrowReady(arrow)
+	lines := make([][]string, 0, len(Arrows()))
+	heights := make([]int, len(Arrows()))
+	currentIndex := 0
 
-		marker := "  "
-		badge := a.styles.Dim
-		switch {
-		case selected:
-			marker = "▸ "
-			badge = a.styles.Accent.Bold(true)
-		case !ready:
-			badge = a.styles.Faint
+	for i, arrow := range Arrows() {
+		row := a.arrowRows(arrow, arrow == current, width)
+		if arrow == current {
+			currentIndex = i
+			// Nothing to expand until the arrow can be read.
+			if a.arrowReady(arrow) {
+				row = append(row, a.arrowExpansion(arrow, width)...)
+			}
 		}
-
-		left := marker + badge.Render(string(arrow))
-		if subject := a.arrowSubject(arrow); subject != "" {
-			left += "  " + a.styles.CardValue.Render(truncate(subject, max(8, width-26)))
-		}
-
-		row := spread(left, a.styles.Faint.Render(a.arrowSummary(arrow)), width)
-		if selected {
-			row = a.styles.RowSelected.Width(width).Render(fitLine(row, width))
-		}
-		rows = append(rows, fitLine(row, width))
+		lines = append(lines, row)
+		heights[i] = len(row)
 	}
-	return strings.Join(rows, "\n")
+
+	start, end := visibleRange(heights, currentIndex, max(3, height))
+	var out []string
+	for _, block := range lines[start:end] {
+		out = append(out, block...)
+	}
+	return strings.Join(out, "\n")
 }
 
-// renderChallengeForm is one arrow's rows: its sentence, then the claims behind
-// it, each with the slots that belong to it.
-func (a *App) renderChallengeForm(arrow Arrow, width, height int) string {
-	badge := a.styles.Accent.Bold(true).Render(string(arrow))
-	indent := strings.Repeat(" ", lipgloss.Width(badge)+4)
+// arrowRows is one arrow as a single line: the arrow, the statement it rests on
+// and how far it has been taken. Every arrow is always listed, dim until its
+// statements exist, so the list keeps its shape and the cursor always moves.
+func (a *App) arrowRows(arrow Arrow, current bool, width int) []string {
+	ready := a.arrowReady(arrow)
 
-	var head []string
-	for i, line := range strings.Split(a.styles.Dim.Width(max(8, width-lipgloss.Width(indent)-2)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
-		if i == 0 {
-			head = append(head, "  "+badge+"  "+line)
-			continue
-		}
-		head = append(head, "  "+indent+line)
+	marker := "  "
+	badge := a.styles.Dim
+	switch {
+	case current && a.cv.challengeMode == challengeList:
+		marker = "▸ "
+		badge = a.styles.Accent.Bold(true)
+	case current:
+		badge = a.styles.Accent.Bold(true)
+	case !ready:
+		badge = a.styles.Faint
 	}
-	head = append(head, "")
+
+	left := marker + badge.Render(string(arrow))
+	if subject := a.arrowSubject(arrow); subject != "" {
+		left += "  " + a.styles.CardValue.Render(truncate(subject, max(8, width-26)))
+	}
+
+	row := spread(left, a.styles.Faint.Render(a.arrowSummary(arrow)), width)
+	if current && a.cv.challengeMode == challengeList {
+		row = a.styles.RowSelected.Width(width).Render(fitLine(row, width))
+	}
+	return []string{fitLine(row, width)}
+}
+
+// arrowExpansion is what an arrow holds: the sentence it stands for, then the
+// claims behind it. It is indented under the arrow row so the list reads as a
+// tree.
+func (a *App) arrowExpansion(arrow Arrow, width int) []string {
+	const indent = 5
+	inner := max(16, width-indent)
+	pad := strings.Repeat(" ", indent)
+
+	var rows []string
+	add := func(block string) {
+		for line := range strings.SplitSeq(block, "\n") {
+			rows = append(rows, fitLine(pad+line, width))
+		}
+	}
+
+	if reading := a.arrowReading(arrow); reading != "" {
+		add(a.styles.Dim.Width(inner).Render(reading))
+	}
 
 	claims := a.challengeAssumptions()
 	if len(claims) == 0 {
-		return strings.Join(append(head, a.emptyClaim(width)), "\n")
+		add(a.emptyClaim(inner))
+		return rows
 	}
 
 	focused := max(0, min(a.cv.challengeSlot.claim, len(claims)-1))
-	blocks := make([]string, len(claims))
-	heights := make([]int, len(claims))
 	for i, as := range claims {
-		hasFocus := i == focused && !a.addingClaim()
-		blocks[i] = a.claimBlock(as, a.cv.challengeSlot.slot, hasFocus, width)
-		heights[i] = lipgloss.Height(blocks[i])
+		hasFocus := a.cv.challengeMode == challengeForm && i == focused && !a.addingClaim()
+		add(a.claimBlock(as, a.cv.challengeSlot.slot, hasFocus, inner))
 	}
-
 	if a.addingClaim() {
-		blocks = append(blocks, a.claimField("  ", width))
-		heights = append(heights, lipgloss.Height(blocks[len(blocks)-1]))
+		add(a.claimField("  ", inner))
 	}
-
-	start, end := visibleRange(heights, focused, max(3, height-len(head)))
-	return strings.Join(append(head, strings.Join(blocks[start:end], "\n")), "\n")
+	return rows
 }
 
 // arrowSubject is the statement an arrow rests on, for the list.

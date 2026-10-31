@@ -269,12 +269,6 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.PrevPane):
 		a.showPane(a.cv.pane.next(-1))
 
-	case key.Matches(msg, a.keys.NextArrow):
-		a.moveArrow(1)
-
-	case key.Matches(msg, a.keys.PrevArrow):
-		a.moveArrow(-1)
-
 	case key.Matches(msg, a.keys.Up):
 		a.moveCursor(-1)
 

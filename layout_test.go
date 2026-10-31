@@ -172,39 +172,35 @@ func TestTabBarIsSeparatedFromThePane(t *testing.T) {
 	}
 }
 
-func TestTabChangesPanesAndArrowsChangeArrows(t *testing.T) {
+func TestArrowsAreMovementAndLeftRightArePanes(t *testing.T) {
 	a := newSizedApp(t, 120, 30)
 	a.Update(keyMsg("enter"))
 	if a.cv.pane != paneStatements {
 		t.Fatalf("opened on %v", a.cv.pane)
 	}
 
-	// Tab is the only thing that changes pane.
-	a.Update(keyMsg("tab"))
-	if a.cv.pane != paneCloud {
-		t.Errorf("tab moved to %v, want cloud", a.cv.pane)
-	}
-	a.Update(keyMsg("tab"))
-	if a.cv.pane != paneChallenge {
-		t.Errorf("tab moved to %v, want challenge", a.cv.pane)
-	}
-
-	// Left and right move between arrows inside the pane, never between panes.
+	// Left and right switch panes, as they do everywhere else.
 	a.Update(keyMsg("right"))
-	if a.cv.pane != paneChallenge {
-		t.Errorf("right changed pane to %v", a.cv.pane)
-	}
-	if a.cv.challengeArrow != 1 {
-		t.Errorf("right moved arrow to %d, want 1", a.cv.challengeArrow)
+	if a.cv.pane != paneCloud {
+		t.Errorf("right went to %v, want cloud", a.cv.pane)
 	}
 	a.Update(keyMsg("left"))
-	if a.cv.challengeArrow != 0 {
-		t.Errorf("left moved arrow to %d, want 0", a.cv.challengeArrow)
+	if a.cv.pane != paneStatements {
+		t.Errorf("left went to %v, want statements", a.cv.pane)
 	}
 
-	a.Update(keyMsg("shift+tab"))
-	if a.cv.pane != paneCloud {
-		t.Errorf("shift+tab moved to %v, want cloud", a.cv.pane)
+	// Up and down move the arrow list.
+	a.Update(keyMsg("3"))
+	if a.cv.pane != paneChallenge {
+		t.Fatalf("3 went to %v", a.cv.pane)
+	}
+	a.Update(keyMsg("down"))
+	if a.cv.challengeArrow != 1 {
+		t.Errorf("down moved to arrow %d, want 1", a.cv.challengeArrow)
+	}
+	a.Update(keyMsg("up"))
+	if a.cv.challengeArrow != 0 {
+		t.Errorf("up moved to arrow %d, want 0", a.cv.challengeArrow)
 	}
 }
 
