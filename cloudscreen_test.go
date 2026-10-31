@@ -104,10 +104,10 @@ func TestPaneCycle(t *testing.T) {
 	if got := paneStatements.next(1); got != paneCloud {
 		t.Errorf("statements.next(1) = %v", got)
 	}
-	if got := paneCloud.next(1); got != paneAssumptions {
+	if got := paneCloud.next(1); got != paneChallenge {
 		t.Errorf("cloud.next(1) = %v", got)
 	}
-	if got := paneAssumptions.next(1); got != paneProcess {
+	if got := paneChallenge.next(1); got != paneProcess {
 		t.Errorf("assumptions.next(1) = %v", got)
 	}
 	if got := paneProcess.next(1); got != paneStatements {
@@ -117,10 +117,10 @@ func TestPaneCycle(t *testing.T) {
 		t.Errorf("statements.next(-1) = %v, want wrap", got)
 	}
 	for want, p := range map[string]pane{
-		"statements":  paneStatements,
-		"cloud":       paneCloud,
-		"assumptions": paneAssumptions,
-		"process":     paneProcess,
+		"statements": paneStatements,
+		"cloud":      paneCloud,
+		"challenge":  paneChallenge,
+		"process":    paneProcess,
 	} {
 		if got := p.String(); got != want {
 			t.Errorf("String = %q, want %q", got, want)
@@ -263,7 +263,7 @@ func TestCloudPaneShowsTheDiagram(t *testing.T) {
 	}
 
 	a.Update(keyMsg("tab"))
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		t.Errorf("tab from the cloud pane should reach assumptions, got %v", a.cv.pane)
 	}
 	a.Update(keyMsg("1"))
@@ -273,7 +273,7 @@ func TestCloudPaneShowsTheDiagram(t *testing.T) {
 }
 
 // openAssumptions opens the test cloud on the assumptions pane.
-func openAssumptions(t *testing.T) *App {
+func openChallenge(t *testing.T) *App {
 	t.Helper()
 	a := newSizedApp(t, 110, 30)
 	a.Update(keyMsg("enter"))
@@ -282,108 +282,70 @@ func openAssumptions(t *testing.T) *App {
 }
 
 func TestArrowsAppearOnceTheyCanBeRead(t *testing.T) {
-	a := openAssumptions(t) // a complete cloud: every arrow can be read
-	rows := a.assumptionRows()
-	if len(rows) != len(Arrows()) {
-		t.Fatalf("rows = %d, want one per arrow (%d)", len(rows), len(Arrows()))
-	}
-	for i, arrow := range Arrows() {
-		if rows[i].arrow != arrow || rows[i].id != "" {
-			t.Errorf("row %d = %+v, want heading %s", i, rows[i], arrow)
-		}
+	a := openChallenge(t) // a complete cloud: every arrow can be read
+	if got := len(a.challengeArrows()); got != len(Arrows()) {
+		t.Fatalf("arrows = %d, want %d", got, len(Arrows()))
 	}
 
-	// With nothing written, no arrow can be read, and the pane says so instead
-	// of showing five bare badges.
+	// With nothing written, no arrow can be read, and the pane says so.
 	empty := New("empty")
 	a.cv.cloud = *empty
-	if rows := a.assumptionRows(); len(rows) != 0 {
-		t.Errorf("empty cloud has %d arrow rows, want none", len(rows))
+	if got := len(a.challengeArrows()); got != 0 {
+		t.Errorf("empty cloud has %d arrows, want none", got)
 	}
-	pane := ansi.Strip(a.renderAssumptions(80, 16))
-	if !strings.Contains(pane, "No arrows yet") {
+	if pane := ansi.Strip(a.renderChallenge(80, 16)); !strings.Contains(pane, "No arrows yet") {
 		t.Errorf("empty pane says nothing:\n%s", pane)
 	}
 }
 
-func TestArrowSubjectsAreDistinct(t *testing.T) {
-	a := openAssumptions(t)
-	seen := map[string]Arrow{}
-	for _, arrow := range Arrows() {
-		subject := a.arrowSubject(arrow)
-		if subject == "" {
-			t.Errorf("%s has no subject", arrow)
-		}
-		if previous, ok := seen[subject]; ok {
-			t.Errorf("%s and %s share the subject %q", previous, arrow, subject)
-		}
-		seen[subject] = arrow
+func TestAddClaimToTheArrowOnScreen(t *testing.T) {
+	a := openChallenge(t)
+	a.moveArrow(2) // A-B, A-C, B-D
+	if arrow, _ := a.challengeArrow(); arrow != ArrowBD {
+		t.Fatalf("arrow = %s, want B-D", arrow)
 	}
-
-	// With nothing written, an arrow names nothing: the heading is just the
-	// arrow, and no sentence is invented from placeholders.
-	empty := New("empty")
-	a.cv.cloud = *empty
-	if got := a.arrowSubject(ArrowBD); got != "" {
-		t.Errorf("empty subject = %q, want none", got)
-	}
-	if got := a.arrowReading(ArrowBD); got != "" {
-		t.Errorf("empty reading = %q, want none", got)
-	}
-	if view := a.renderAssumptions(80, 20); strings.Contains(view, "unstated") {
-		t.Errorf("placeholder leaked into the pane:\n%s", view)
-	}
-}
-
-func TestAddAssumptionFromHeading(t *testing.T) {
-	a := openAssumptions(t)
-	a.cv.assumptionCursor = 2 // the B-D heading
 
 	a.Update(keyMsg("a"))
 	if !a.ed.open {
-		t.Fatal("a did not open the editor")
+		t.Fatal("a did not open the claim editor")
 	}
-	for _, r := range "review catches every regression" {
-		a.Update(keyMsg(string(r)))
-	}
+	typeString(a, "review catches every regression")
 	a.Update(keyMsg("enter"))
 
-	if len(a.cv.cloud.Assumptions) != 1 {
-		t.Fatalf("assumptions = %d, want 1", len(a.cv.cloud.Assumptions))
+	claims := a.challengeAssumptions()
+	if len(claims) != 1 {
+		t.Fatalf("claims = %d, want 1", len(claims))
 	}
-	added := a.cv.cloud.Assumptions[0]
-	if added.Arrow != ArrowBD || added.Text != "review catches every regression" {
-		t.Errorf("assumption = %+v", added)
+	if claims[0].Arrow != ArrowBD || claims[0].Text != "review catches every regression" {
+		t.Errorf("claim = %+v", claims[0])
 	}
-
-	row, ok := a.selectedAssumptionRow()
-	if !ok || row.id != added.ID {
-		t.Errorf("cursor did not follow the new assumption: %+v", row)
+	if selected, ok := a.selectedAssumption(); !ok || selected.ID != claims[0].ID {
+		t.Error("the cursor did not move onto the new claim")
 	}
 
 	saved, err := a.store.Load(a.cv.cloud.ID)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(saved.Assumptions) != 1 || saved.Assumptions[0].Text != added.Text {
+	if len(saved.Assumptions) != 1 {
 		t.Errorf("not persisted: %+v", saved.Assumptions)
 	}
 }
 
-func TestAddingAnEmptyAssumptionIsIgnored(t *testing.T) {
-	a := openAssumptions(t)
+func TestAddingAnEmptyClaimIsIgnored(t *testing.T) {
+	a := openChallenge(t)
 	a.Update(keyMsg("a"))
 	a.Update(keyMsg("enter")) // save with no text
 
 	if len(a.cv.cloud.Assumptions) != 0 {
-		t.Errorf("an empty assumption was stored: %+v", a.cv.cloud.Assumptions)
+		t.Errorf("an empty claim was stored: %+v", a.cv.cloud.Assumptions)
 	}
 }
 
 func TestVerdictCyclePersists(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	a.selectAssumption(id)
+	a.focusClaim(ArrowBD, id)
 
 	want := []Verdict{Holds, Questionable, Invalid, Unassessed}
 	for i, expected := range want {
@@ -405,9 +367,9 @@ func TestVerdictCyclePersists(t *testing.T) {
 }
 
 func TestEvidenceIsSavedAndTrims(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	a.selectAssumption(id)
+	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("e"))
 	if !a.ed.open {
@@ -431,25 +393,25 @@ func TestEvidenceIsSavedAndTrims(t *testing.T) {
 	}
 }
 
-func TestActionsOnAHeadingExplainThemselves(t *testing.T) {
-	a := openAssumptions(t)
-	a.cv.assumptionCursor = 0 // A-B heading
+func TestClaimActionsWithoutAClaimExplainThemselves(t *testing.T) {
+	a := openChallenge(t)
+	a.cv.cloud.Assumptions = nil
 
-	for _, key := range []string{"v", "e", "x"} {
-		a.Update(keyMsg(key))
+	for _, k := range []string{"v", "e", "i", "x"} {
+		a.Update(keyMsg(k))
 		if a.flash.text == "" {
-			t.Errorf("%q on a heading gave no message", key)
+			t.Errorf("%q with no claim gave no message", k)
 		}
 		if a.ed.open {
-			t.Errorf("%q opened an editor on a heading", key)
+			t.Errorf("%q opened an editor with no claim", k)
 		}
 	}
 }
 
 func TestDeleteAssumptionNeedsConfirmation(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	a.selectAssumption(id)
+	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("x"))
 	if a.confirm == nil {
@@ -475,19 +437,24 @@ func TestDeleteAssumptionNeedsConfirmation(t *testing.T) {
 	}
 }
 
-func TestAssumptionCursorStaysInRange(t *testing.T) {
-	a := openAssumptions(t)
-	for range 20 {
+func TestClaimCursorStaysInRange(t *testing.T) {
+	a := openChallenge(t)
+	for _, text := range []string{"one", "two", "three"} {
+		a.cv.cloud.AddAssumption(ArrowBD, text)
+	}
+	a.moveArrow(2) // onto B-D
+
+	for range 10 {
 		a.Update(keyMsg("down"))
 	}
-	if got, want := a.cv.assumptionCursor, len(a.assumptionRows())-1; got != want {
+	if got, want := a.cv.challengeAssumption, 2; got != want {
 		t.Errorf("cursor = %d, want %d", got, want)
 	}
-	for range 20 {
+	for range 10 {
 		a.Update(keyMsg("up"))
 	}
-	if a.cv.assumptionCursor != 0 {
-		t.Errorf("cursor = %d, want 0", a.cv.assumptionCursor)
+	if a.cv.challengeAssumption != 0 {
+		t.Errorf("cursor = %d, want 0", a.cv.challengeAssumption)
 	}
 }
 
@@ -497,96 +464,58 @@ func typeString(a *App, text string) {
 	}
 }
 
-func TestInjectAgainstAnAssumption(t *testing.T) {
-	a := openAssumptions(t)
+func TestInjectAnswersTheSelectedClaim(t *testing.T) {
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
 	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
-	a.selectAssumption(id)
+	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("i"))
 	if !a.ed.open {
-		t.Fatal("i did not open the injection editor")
-	}
-	typeString(a, "pair every change with a regression test")
-	a.Update(keyMsg("enter"))
-
-	if len(a.cv.cloud.Injections) != 1 {
-		t.Fatalf("injections = %d, want 1", len(a.cv.cloud.Injections))
-	}
-	injection := a.cv.cloud.Injections[0]
-	if len(injection.Breaks) != 1 || injection.Breaks[0] != id {
-		t.Errorf("injection breaks %v, want the selected assumption", injection.Breaks)
-	}
-	if got := a.cv.cloud.Status(); got != StatusDissolving {
-		t.Errorf("status = %v, want dissolving until verified", got)
-	}
-
-	saved, err := a.store.Load(a.cv.cloud.ID)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(saved.Injections) != 1 || saved.Injections[0].Text != injection.Text {
-		t.Errorf("not persisted: %+v", saved.Injections)
-	}
-}
-
-func TestInjectAgainstTheSelectedAssumption(t *testing.T) {
-	a := openAssumptions(t)
-	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
-	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
-	a.selectAssumption(id)
-
-	a.Update(keyMsg("i"))
-	if !a.ed.open {
-		t.Fatal("i did not open the injection editor")
+		t.Fatal("i did not open the answer editor")
 	}
 	typeString(a, "pair every change with a test")
 	a.Update(keyMsg("enter"))
 
 	if len(a.cv.cloud.Injections) != 1 {
-		t.Fatalf("injections = %d, want 1", len(a.cv.cloud.Injections))
+		t.Fatalf("answers = %d, want 1", len(a.cv.cloud.Injections))
 	}
-	injection := a.cv.cloud.Injections[0]
-	if len(injection.Breaks) != 1 || injection.Breaks[0] != id {
-		t.Errorf("injection breaks %v, want the selected assumption", injection.Breaks)
+	if got := a.cv.cloud.Injections[0].Breaks; len(got) != 1 || got[0] != id {
+		t.Errorf("answer breaks %v, want the selected claim", got)
 	}
 
-	// The new injection is listed under the assumption it answers.
-	row, ok := a.selectedAssumptionRow()
-	if !ok || row.injectionID != injection.ID {
-		t.Errorf("cursor did not follow the new injection: %+v", row)
+	pane := ansi.Strip(a.renderChallenge(100, 30))
+	if !strings.Contains(pane, "pair every change with a test") {
+		t.Errorf("the answer is not visible under its claim:\n%s", pane)
 	}
 }
 
-func TestInjectOpensTheInjectionThatAlreadyAnswers(t *testing.T) {
-	a := openAssumptions(t)
+func TestInjectOpensTheAnswerThatAlreadyExists(t *testing.T) {
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
-	a.selectAssumption(id)
+	answerID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("i"))
 	if !a.ed.open {
-		t.Fatal("i did not open the existing injection")
+		t.Fatal("i did not open the existing answer")
 	}
 	if got := a.ed.Value(); got != "automate the review" {
-		t.Errorf("editor value = %q, want the existing idea", got)
+		t.Errorf("editor value = %q", got)
 	}
 	a.Update(keyMsg("esc"))
 
-	if len(a.cv.cloud.Injections) != 1 {
-		t.Errorf("injections = %d, want no duplicate", len(a.cv.cloud.Injections))
-	}
-	if row, _ := a.selectedAssumptionRow(); row.injectionID != injectionID {
-		t.Error("the cursor did not move to the existing injection")
+	if len(a.cv.cloud.Injections) != 1 || a.cv.cloud.InjectionByID(answerID) == nil {
+		t.Error("a duplicate answer was created")
 	}
 }
 
-func TestInjectionRationaleIsSaved(t *testing.T) {
-	a := openAssumptions(t)
+func TestAnswerRationaleIsSaved(t *testing.T) {
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	answerID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.focusClaim(ArrowBD, id)
 
-	a.selectInjectionRow(injectionID)
 	a.Update(keyMsg("r"))
 	if !a.ed.open {
 		t.Fatal("r did not open the rationale editor")
@@ -594,36 +523,33 @@ func TestInjectionRationaleIsSaved(t *testing.T) {
 	typeString(a, "the test outlives the review")
 	a.Update(keyMsg("ctrl+s"))
 
-	if got := a.cv.cloud.InjectionByID(injectionID).Rationale; got != "the test outlives the review" {
+	if got := a.cv.cloud.InjectionByID(answerID).Rationale; got != "the test outlives the review" {
 		t.Errorf("rationale = %q", got)
 	}
 }
 
-func TestDeleteInjectionNeedsConfirmation(t *testing.T) {
-	a := openAssumptions(t)
+func TestClearingAnAnswerRemovesIt(t *testing.T) {
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	answerID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.focusClaim(ArrowBD, id)
 
-	a.selectInjectionRow(injectionID)
-
-	a.Update(keyMsg("x"))
-	if a.confirm == nil {
-		t.Fatal("x did not ask for confirmation")
+	a.Update(keyMsg("i")) // opens the existing answer
+	if !a.ed.open {
+		t.Fatal("i did not open the answer")
 	}
-	a.Update(keyMsg("n"))
-	if a.cv.cloud.InjectionByID(injectionID) == nil {
-		t.Fatal("n deleted the injection anyway")
+	for range len("automate the review") {
+		a.Update(keyMsg("backspace"))
 	}
+	a.Update(keyMsg("enter"))
 
-	a.Update(keyMsg("x"))
-	a.Update(keyMsg("y"))
-	if a.cv.cloud.InjectionByID(injectionID) != nil {
-		t.Error("y did not delete the injection")
+	if a.cv.cloud.InjectionByID(answerID) != nil {
+		t.Error("emptying the answer did not remove it")
 	}
 }
 
 func TestVerificationRequiresABrokenAssumption(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	a.Update(keyMsg("V"))
 	if a.cv.cloud.Verified {
 		t.Error("verified a cloud where nothing is broken")
@@ -634,7 +560,7 @@ func TestVerificationRequiresABrokenAssumption(t *testing.T) {
 }
 
 func TestVerifyWorksFromAnyPane(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
 	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
 	a.cv.cloud.AddInjection([]string{id}, "automate the review")
@@ -646,26 +572,8 @@ func TestVerifyWorksFromAnyPane(t *testing.T) {
 	}
 }
 
-func TestInjectionSitsUnderItsAssumption(t *testing.T) {
-	a := openAssumptions(t)
-	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
-	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
-
-	rows := a.assumptionRows()
-	for i, row := range rows {
-		if row.injectionID != injectionID {
-			continue
-		}
-		if i == 0 || rows[i-1].id != id {
-			t.Error("the injection is not directly under its assumption")
-		}
-		return
-	}
-	t.Errorf("injection row not found in %d rows", len(rows))
-}
-
 func TestVerificationDissolvesTheCloud(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
 	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
 	a.cv.cloud.AddInjection([]string{id}, "automate the review")
@@ -694,7 +602,7 @@ func TestVerificationDissolvesTheCloud(t *testing.T) {
 }
 
 func TestProcessPaneShowsStepsAndIssues(t *testing.T) {
-	a := openAssumptions(t)
+	a := openChallenge(t)
 	a.cv.pane = paneProcess
 	view := ansi.Strip(a.View().Content)
 

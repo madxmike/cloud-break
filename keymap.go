@@ -35,9 +35,13 @@ type keyMap struct {
 	CtrlC       key.Binding
 	NextPane    key.Binding
 	PrevPane    key.Binding
-	Dismiss     key.Binding
-	Yes         key.Binding
-	No          key.Binding
+	NextArrow   key.Binding
+	PrevArrow   key.Binding
+	// ArrowStep is display-only: one footer entry for stepping between arrows.
+	ArrowStep key.Binding
+	Dismiss   key.Binding
+	Yes       key.Binding
+	No        key.Binding
 
 	// Pane holds the direct-jump keys, in the order of cloudPanes.
 	Pane []key.Binding
@@ -62,20 +66,23 @@ func newKeyMap() keyMap {
 		Add:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Verdict:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "verdict")),
 		Evidence: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "evidence")),
-		Inject:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "inject")),
+		Inject:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "answer")),
 		Why:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "why")),
 		Verify:   key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "verify")),
 		Title:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "title")),
 		Sides:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sides")),
 
-		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:     key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
-		CtrlC:    key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^C", "quit")),
-		NextPane: key.NewBinding(key.WithKeys("tab", "right"), key.WithHelp("tab/→", "next pane")),
-		PrevPane: key.NewBinding(key.WithKeys("shift+tab", "left"), key.WithHelp("⇧tab/←", "previous pane")),
-		Dismiss:  key.NewBinding(key.WithKeys("esc", "q", "?", "enter")),
-		Yes:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
-		No:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
+		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:      key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+		CtrlC:     key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^C", "quit")),
+		NextPane:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+		PrevPane:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("⇧tab", "previous pane")),
+		NextArrow: key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "next arrow")),
+		PrevArrow: key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "previous arrow")),
+		ArrowStep: key.NewBinding(key.WithKeys("left", "right"), key.WithHelp("←/→", "arrow")),
+		Dismiss:   key.NewBinding(key.WithKeys("esc", "q", "?", "enter")),
+		Yes:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
+		No:        key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
 
 		Pane: []key.Binding{
 			jump("1", "statements"),
@@ -130,8 +137,8 @@ func (a *App) footerBindings() []key.Binding {
 	}
 
 	switch a.cv.pane {
-	case paneAssumptions:
-		return []key.Binding{k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Why, k.Delete}
+	case paneChallenge:
+		return []key.Binding{k.ArrowStep, k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Delete}
 	case paneProcess:
 		return []key.Binding{k.Verify, k.Back}
 	case paneCloud:
@@ -152,7 +159,7 @@ func (a *App) helpSections() []helpSection {
 	k := a.keys
 
 	panes := make([]key.Binding, 0, len(k.Pane)+3)
-	panes = append(panes, k.NextPane, k.PrevPane)
+	panes = append(panes, k.NextPane, k.PrevPane, k.ArrowStep)
 	panes = append(panes, k.Pane...)
 	panes = append(panes, k.Help)
 

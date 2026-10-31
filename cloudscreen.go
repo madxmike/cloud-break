@@ -14,19 +14,19 @@ type pane int
 const (
 	paneStatements pane = iota
 	paneCloud
-	paneAssumptions
+	paneChallenge
 	paneProcess
 )
 
 // cloudPanes is the switch order for the pane keys.
-var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions, paneProcess}
+var cloudPanes = []pane{paneStatements, paneCloud, paneChallenge, paneProcess}
 
 func (p pane) String() string {
 	switch p {
 	case paneCloud:
 		return "cloud"
-	case paneAssumptions:
-		return "assumptions"
+	case paneChallenge:
+		return "challenge"
 	case paneProcess:
 		return "process"
 	}
@@ -48,12 +48,12 @@ func (p pane) next(delta int) pane {
 // cloudScreen is the editor for one cloud: the statement slots, the active pane
 // and the cursor that says which slot is being worked on.
 type cloudScreen struct {
-	cloud            Cloud
-	pane             pane
-	cursor           int // statement slot
-	paneWidth        int // column the pane was last drawn in
-	assumptionCursor int // row in the assumptions pane
-	injectionCursor  int // row in the injections pane
+	cloud               Cloud
+	pane                pane
+	cursor              int // statement slot
+	paneWidth           int // column the pane was last drawn in
+	challengeArrow      int // which readable arrow the form shows
+	challengeAssumption int // which claim behind that arrow
 }
 
 func newCloudScreen(c Cloud) cloudScreen { return cloudScreen{cloud: c} }
@@ -96,8 +96,8 @@ func (a *App) renderPane(width, height int) string {
 	switch a.cv.pane {
 	case paneCloud:
 		return a.renderDiagramPane(width, height)
-	case paneAssumptions:
-		return a.renderAssumptions(width, height)
+	case paneChallenge:
+		return a.renderChallenge(width, height)
 	case paneProcess:
 		return a.renderProcess(width, height)
 	default:
@@ -124,177 +124,172 @@ func (a *App) renderDiagramPane(width, height int) string {
 
 // assumptionRow is one line of the assumptions pane: an arrow heading, or one
 // assumption behind that arrow.
-type assumptionRow struct {
-	arrow       Arrow
-	id          string // the assumption, empty on a heading
-	injectionID string // an injection against the assumption above it
-}
-
-// assumptionRows flattens the cloud into headings and assumptions, so a single
-// cursor can walk the whole argument.
-func (a *App) assumptionRows() []assumptionRow {
-	var rows []assumptionRow
+// challengeArrows are the arrows with something to say: both statements
+// written, or a claim already recorded against them.
+func (a *App) challengeArrows() []Arrow {
+	var arrows []Arrow
 	for _, arrow := range Arrows() {
-		// An arrow is worth a row once it can be read. Until both of its
-		// statements exist there is nothing to challenge and nothing to say, so
-		// it would only be a bare badge.
 		if a.arrowReading(arrow) == "" && a.cv.cloud.CountFor(arrow) == 0 {
 			continue
 		}
-		rows = append(rows, assumptionRow{arrow: arrow})
-		for _, as := range a.cv.cloud.AssumptionsFor(arrow) {
-			rows = append(rows, assumptionRow{arrow: arrow, id: as.ID})
-			// The injection that answers an assumption sits under it, so the
-			// verdict, the breakthrough and the evidence are one block.
-			for _, injection := range a.cv.cloud.Injections {
-				if contains(injection.Breaks, as.ID) {
-					rows = append(rows, assumptionRow{arrow: arrow, injectionID: injection.ID})
-				}
-			}
-		}
+		arrows = append(arrows, arrow)
 	}
-	return rows
+	return arrows
 }
 
-// assumptionGroups collects the flat rows into one card per arrow.
-func (a *App) assumptionGroups() [][]assumptionRow {
-	var groups [][]assumptionRow
-	for _, row := range a.assumptionRows() {
-		// Only a heading starts a card; an injection row also has no
-		// assumption id, but it belongs to the card above it.
-		if row.id == "" && row.injectionID == "" {
-			groups = append(groups, []assumptionRow{row})
-			continue
-		}
-		if len(groups) == 0 {
-			continue
-		}
-		last := len(groups) - 1
-		groups[last] = append(groups[last], row)
+// challengeArrow is the arrow the form is showing.
+func (a *App) challengeArrow() (Arrow, bool) {
+	arrows := a.challengeArrows()
+	if len(arrows) == 0 {
+		return "", false
 	}
-	return groups
+	return arrows[max(0, min(a.cv.challengeArrow, len(arrows)-1))], true
 }
 
-// renderAssumptions draws one card per arrow: its sentence, then the
-// assumptions behind it.
-func (a *App) renderAssumptions(width, height int) string {
-	groups := a.assumptionGroups()
-	if len(groups) == 0 {
+// challengeAssumptions are the claims behind the arrow on screen.
+func (a *App) challengeAssumptions() []Assumption {
+	arrow, ok := a.challengeArrow()
+	if !ok {
+		return nil
+	}
+	return a.cv.cloud.AssumptionsFor(arrow)
+}
+
+// selectedAssumption is the claim under the cursor.
+func (a *App) selectedAssumption() (Assumption, bool) {
+	claims := a.challengeAssumptions()
+	if len(claims) == 0 {
+		return Assumption{}, false
+	}
+	return claims[max(0, min(a.cv.challengeAssumption, len(claims)-1))], true
+}
+
+// renderChallenge is the workbench: one arrow, its sentence, and the claims
+// behind it with the answer to each.
+func (a *App) renderChallenge(width, height int) string {
+	arrows := a.challengeArrows()
+	if len(arrows) == 0 {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
 			a.styles.Dim.Width(min(width, 46)).Align(lipgloss.Center).
 				Render("No arrows yet.\n\nAn arrow appears once both of its statements are written."))
 	}
 
-	selected := max(0, min(a.cv.assumptionCursor, len(a.assumptionRows())-1))
-	focusedCard, local := 0, 0
-	seen := 0
-	for i, group := range groups {
-		if selected < seen+len(group) {
-			focusedCard, local = i, selected-seen
-			break
-		}
-		seen += len(group)
+	index := max(0, min(a.cv.challengeArrow, len(arrows)-1))
+	arrow := arrows[index]
+
+	head := []string{a.challengeStrip(arrows, index, width), ""}
+	for _, line := range strings.Split(a.styles.Dim.Width(max(8, width-2)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
+		head = append(head, " "+line)
+	}
+	head = append(head, "")
+
+	claims := a.challengeAssumptions()
+	if len(claims) == 0 {
+		return strings.Join(append(head, a.emptyClaim(width)), "\n")
 	}
 
-	cards := make([]string, len(groups))
-	heights := make([]int, len(groups))
-	for i, group := range groups {
-		row := -1
-		if i == focusedCard {
-			row = local
-		}
-		cards[i] = a.arrowCard(group[0].arrow, group[1:], row, i == focusedCard, width)
-		heights[i] = lipgloss.Height(cards[i])
+	selected := max(0, min(a.cv.challengeAssumption, len(claims)-1))
+	blocks := make([]string, len(claims))
+	heights := make([]int, len(claims))
+	for i, as := range claims {
+		blocks[i] = a.claimBlock(as, i == selected, width)
+		heights[i] = lipgloss.Height(blocks[i])
 	}
 
-	start, end := visibleRange(heights, focusedCard, height)
-	return strings.Join(cards[start:end], "\n")
+	start, end := visibleRange(heights, selected, max(3, height-len(head)))
+	return strings.Join(append(head, strings.Join(blocks[start:end], "\n")), "\n")
 }
 
-// arrowCard draws one arrow: the sentence it stands for in the body, the
-// assumptions behind it beneath, and the arrow itself in the border.
-func (a *App) arrowCard(arrow Arrow, assumptions []assumptionRow, selectedRow int, focused bool, width int) string {
-	width = cardWidth(width)
-	inner := width - 4
-
-	borderStyle := a.styles.Faint
-	labelStyle := a.styles.CardLabel
-	if focused {
-		borderStyle = a.styles.Accent
-		labelStyle = a.styles.CardLabelFocused
-	}
-
-	label := string(arrow)
-	if count := a.cv.cloud.CountFor(arrow); count > 0 {
-		label = fmt.Sprintf("%s %d", arrow, count)
-	}
-	label = truncate(label, max(8, inner-6))
-
-	pad := max(0, width-5-lipgloss.Width(label))
-	lines := []string{
-		borderStyle.Render("╭─ ") + labelStyle.Render(label) +
-			borderStyle.Render(" "+strings.Repeat("─", pad)+"╮"),
-	}
-
-	var body []string
-	if reading := a.arrowReading(arrow); reading != "" {
-		style := a.styles.Dim
-		if focused && selectedRow == 0 {
-			style = a.styles.Strong
-		}
-		body = append(body, style.Width(inner).Render(reading))
-	}
-
-	for i, row := range assumptions {
-		selected := focused && selectedRow == i+1
-		if row.injectionID != "" {
-			body = append(body, a.injectionLine(row.injectionID, selected, inner))
+// challengeStrip names each arrow that can be worked on, with the one on screen
+// filled in.
+func (a *App) challengeStrip(arrows []Arrow, current, width int) string {
+	chips := make([]string, 0, len(arrows))
+	for i, arrow := range arrows {
+		if i == current {
+			chips = append(chips, a.styles.TabActive.Render("▸"+string(arrow)))
 			continue
 		}
-		as := a.cv.cloud.AssumptionByID(row.id)
-		if as == nil {
-			continue
-		}
-		body = append(body, a.assumptionText(*as, selected, inner))
+		chips = append(chips, a.styles.Tab.Render(string(arrow)))
 	}
-
-	if len(body) == 0 {
-		body = append(body, "")
-	}
-
-	for _, block := range body {
-		for line := range strings.SplitSeq(block, "\n") {
-			lines = append(lines,
-				borderStyle.Render("│")+" "+padRight(line, inner)+" "+borderStyle.Render("│"))
-		}
-	}
-	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
-	return strings.Join(lines, "\n")
+	return fitLine(" "+strings.Join(chips, ""), width)
 }
 
-// arrowHeading shows the sentence an arrow stands for, so the "because" being
-// added has a meaning in the argument.
+// claimTextColumn is where the words start on every labelled row, so the
+// labels line up down the block.
+const claimTextColumn = 12
 
-// indented wraps text to the pane and prefixes every line, so a sentence that
-// needs two rows stays aligned under the row it belongs to.
-func (a *App) indented(text, indent string, width int) string {
-	lines := wrapText(text, max(8, width-lipgloss.Width(indent)), 2)
-	for i := range lines {
-		lines[i] = indent + a.styles.CardHint.Render(lines[i])
+// claimBlock renders one claim: what is asserted, how it was judged, and the
+// answer to it.
+func (a *App) claimBlock(as Assumption, selected bool, width int) string {
+	marker := "  "
+	textStyle := a.styles.CardValue
+	if selected {
+		marker = "▸ "
+		textStyle = a.styles.Strong
 	}
-	return strings.Join(lines, "\n")
+	textWidth := max(8, width-claimTextColumn-1)
+
+	lines := wrapText(as.Text, textWidth, 4)
+	first := marker + a.styles.CardLabel.Render("because") + "   " + textStyle.Render(lines[0])
+	if as.Verdict != Unassessed {
+		verdict := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph() + " " + as.Verdict.String())
+		if room := width - lipgloss.Width(first) - 1; room >= lipgloss.Width(verdict) {
+			first = spread(first, verdict, width)
+		} else {
+			lines = append(lines, verdict)
+		}
+	}
+
+	rows := []string{fitLine(first, width)}
+	for _, line := range lines[1:] {
+		rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+textStyle.Render(line), width))
+	}
+
+	if evidence := strings.TrimSpace(as.Evidence); evidence != "" {
+		for i, line := range wrapText(evidence, textWidth, 2) {
+			prefix := strings.Repeat(" ", claimTextColumn)
+			if i == 0 {
+				prefix = "  " + a.styles.CardLabel.Render("evidence") + "  "
+			}
+			rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+		}
+	}
+
+	answer := a.cv.cloud.InjectionBreaking(as.ID)
+	if answer == nil {
+		rows = append(rows, fitLine("  "+a.styles.CardLabel.Render("answer")+"    "+
+			a.styles.CardPrompt.Render("nothing yet"), width))
+		return strings.Join(rows, "\n")
+	}
+
+	tone := a.styles.CardValue
+	if selected {
+		tone = a.styles.Strong
+	}
+	for i, line := range wrapText(answer.Text, textWidth, 2) {
+		prefix := strings.Repeat(" ", claimTextColumn)
+		if i == 0 {
+			prefix = "  " + a.styles.CardLabel.Render("answer") + "    "
+		}
+		rows = append(rows, fitLine(prefix+tone.Render(line), width))
+	}
+	if rationale := strings.TrimSpace(answer.Rationale); rationale != "" {
+		for i, line := range wrapText(rationale, textWidth, 2) {
+			prefix := strings.Repeat(" ", claimTextColumn)
+			if i == 0 {
+				prefix = "  " + a.styles.CardLabel.Render("why") + "       "
+			}
+			rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 
-// arrowSubject names the condition an arrow rests on.
-func (a *App) arrowSubject(arrow Arrow) string {
-	if arrow == ArrowDD2 {
-		if a.cv.cloud.Text(SlotD) == "" || a.cv.cloud.Text(SlotD2) == "" {
-			return ""
-		}
-		return "the two wants cannot both happen"
-	}
-	from, _ := arrow.Ends()
-	return a.cv.cloud.Text(from)
+// emptyClaim is the block shown before the first claim is written: the shape of
+// the work, without any prose around it.
+func (a *App) emptyClaim(width int) string {
+	return fitLine("  "+a.styles.CardLabel.Render("because")+"   "+
+		a.styles.CardPrompt.Render("what has to be true for this arrow?"), width)
 }
 
 // arrowReading is the necessity sentence, or "" while it could only be made of
@@ -305,65 +300,6 @@ func (a *App) arrowReading(arrow Arrow) string {
 		return ""
 	}
 	return arrow.Reading(&a.cv.cloud)
-}
-
-// assumptionText is one assumption: verdict glyph, the "because", and a mark
-// when evidence has been recorded for it.
-func (a *App) assumptionText(as Assumption, selected bool, width int) string {
-	marker := "   "
-	if selected {
-		marker = " ▸ "
-	}
-	glyph := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph())
-
-	evidence := ""
-	if strings.TrimSpace(as.Evidence) != "" {
-		evidence = " " + a.styles.Faint.Render("≡")
-	}
-
-	room := max(8, width-lipgloss.Width(marker)-lipgloss.Width(glyph)-lipgloss.Width(evidence)-3)
-	text := a.styles.CardValue
-	if selected {
-		text = a.styles.Strong
-	}
-	line := fitLine(marker+glyph+" "+text.Render(truncate(as.Text, room))+evidence, width)
-
-	if !selected {
-		return line
-	}
-	if body := strings.TrimSpace(as.Evidence); body != "" {
-		line += "\n" + a.indented(body, "     ", width)
-	}
-	return line
-}
-
-// injectionLine is the breakthrough under an assumption: the idea, and why it
-// works once there is a reason to show.
-func (a *App) injectionLine(id string, selected bool, width int) string {
-	injection := a.cv.cloud.InjectionByID(id)
-	if injection == nil {
-		return ""
-	}
-
-	marker := "     "
-	if selected {
-		marker = "   ▸ "
-	}
-	text := a.styles.CardValue
-	if selected {
-		text = a.styles.Strong
-	}
-
-	room := max(8, width-lipgloss.Width(marker)-3)
-	line := marker + a.styles.Warning.Render("⚡") + " " + text.Render(truncate(injection.Text, room))
-
-	if !selected {
-		return line
-	}
-	if rationale := strings.TrimSpace(injection.Rationale); rationale != "" {
-		line += "\n" + a.indented("why: "+rationale, "       ", width)
-	}
-	return line
 }
 
 func (a *App) renderProcess(width, height int) string {

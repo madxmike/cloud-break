@@ -264,6 +264,12 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.PrevPane):
 		a.cv.pane = a.cv.pane.next(-1)
 
+	case key.Matches(msg, a.keys.NextArrow):
+		a.moveArrow(1)
+
+	case key.Matches(msg, a.keys.PrevArrow):
+		a.moveArrow(-1)
+
 	case key.Matches(msg, a.keys.Up):
 		a.moveCursor(-1)
 
@@ -312,12 +318,26 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
-	if a.cv.pane == paneAssumptions {
-		last := len(a.assumptionRows()) - 1
-		a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor+delta, last))
+	if a.cv.pane == paneChallenge {
+		last := len(a.challengeAssumptions()) - 1
+		a.cv.challengeAssumption = max(0, min(a.cv.challengeAssumption+delta, last))
 		return
 	}
 	a.cv.move(delta, len(SlotInfos()))
+}
+
+// moveArrow steps to another arrow in the challenge pane and puts the cursor on
+// its first claim.
+func (a *App) moveArrow(delta int) {
+	if a.cv.pane != paneChallenge {
+		return
+	}
+	arrows := a.challengeArrows()
+	if len(arrows) == 0 {
+		return
+	}
+	a.cv.challengeArrow = max(0, min(a.cv.challengeArrow+delta, len(arrows)-1))
+	a.cv.challengeAssumption = 0
 }
 
 // activate handles enter: edit the highlighted statement or assumption.
@@ -325,28 +345,27 @@ func (a *App) activate() tea.Cmd {
 	switch a.cv.pane {
 	case paneStatements:
 		return a.startInline()
-	case paneAssumptions:
-		return a.editSelectedRow()
+	case paneChallenge:
+		return a.editClaim()
 	}
 	a.cv.pane = paneStatements
 	return nil
 }
 
+// editClaim edits the words of the claim under the cursor, or starts the first
+// one when the arrow has none yet.
+func (a *App) editClaim() tea.Cmd {
+	as, ok := a.selectedAssumption()
+	if !ok {
+		return a.addAssumption()
+	}
+	arrow, _ := a.challengeArrow()
+	return a.ed.Open(editTarget{kind: editAssumptionText, id: as.ID, arrow: arrow},
+		fmt.Sprintf("%s · claim", arrow), a.arrowHint(arrow), as.Text, a.width, false)
+}
+
 // editSelectedRow edits whatever the cursor rests on: an assumption's text, an
 // injection's idea, or a new assumption under a heading.
-func (a *App) editSelectedRow() tea.Cmd {
-	row, ok := a.selectedAssumptionRow()
-	if !ok {
-		return nil
-	}
-	switch {
-	case row.injectionID != "":
-		return a.editInjection(row.injectionID)
-	case row.id != "":
-		return a.editAssumption()
-	}
-	return a.addAssumption()
-}
 
 // partyEdit tracks the two-step edit of the side names.
 type partyEdit struct {
@@ -395,42 +414,22 @@ func (a *App) startInline() tea.Cmd {
 		a.cv.cloud.Text(info.Slot), cardWidth(paneWidth)-4)
 }
 
-// editAssumption opens the selected assumption's text, or starts a new one when
-// the cursor is on an arrow heading.
-func (a *App) editAssumption() tea.Cmd {
-	row, ok := a.selectedAssumptionRow()
-	if !ok {
-		return nil
-	}
-	if row.id == "" {
-		return a.addAssumption()
-	}
-	as := a.cv.cloud.AssumptionByID(row.id)
-	if as == nil {
-		return nil
-	}
-	return a.ed.Open(editTarget{kind: editAssumptionText, id: as.ID, arrow: row.arrow},
-		fmt.Sprintf("%s · assumption", row.arrow), a.arrowHint(row.arrow),
-		as.Text, a.width, false)
-}
-
 // addAssumption starts a new assumption on the arrow under the cursor.
 func (a *App) addAssumption() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
+	arrow, ok := a.challengeArrow()
 	if !ok {
 		return nil
 	}
-	return a.ed.Open(editTarget{kind: editAssumptionText, id: "", arrow: row.arrow},
-		fmt.Sprintf("%s · new assumption", row.arrow), a.arrowHint(row.arrow),
-		"", a.width, false)
+	return a.ed.Open(editTarget{kind: editAssumptionText, id: "", arrow: arrow},
+		fmt.Sprintf("%s · new claim", arrow), a.arrowHint(arrow), "", a.width, false)
 }
 
 // add dispatches the add key to whichever pane is open.
 func (a *App) add() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
 	return a.addAssumption()
@@ -438,65 +437,38 @@ func (a *App) add() tea.Cmd {
 
 // deleteSelected dispatches the delete key to whichever pane is open.
 func (a *App) deleteSelected() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
+	as, ok := a.selectedAssumption()
 	if !ok {
-		return nil
+		return a.setFlash("Add a claim first; there is nothing to delete.", false)
 	}
-	switch {
-	case row.injectionID != "":
-		return a.askDeleteInjection(row.injectionID)
-	case row.id != "":
-		return a.askDeleteAssumption(row.id)
-	}
-	return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
+	return a.askDeleteAssumption(as.ID)
 }
 
 // injectAgainstSelected starts an injection against the assumption under the
 // cursor: the step that dissolves a cloud.
 func (a *App) injectHere() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
+	as, ok := a.selectedAssumption()
 	if !ok {
-		return nil
+		return a.setFlash("Add a claim first; the answer belongs to it.", false)
 	}
+	arrow, _ := a.challengeArrow()
 
-	// On an injection, i opens it. On an assumption, it opens the injection
-	// that answers it, or starts one.
-	if row.injectionID != "" {
-		return a.editInjection(row.injectionID)
-	}
-	if row.id == "" {
-		return a.setFlash("Injections attach to assumptions.", false)
-	}
-	if existing := a.cv.cloud.InjectionBreaking(row.id); existing != nil {
-		a.selectInjectionRow(existing.ID)
+	if existing := a.cv.cloud.InjectionBreaking(as.ID); existing != nil {
 		return a.editInjection(existing.ID)
 	}
-
-	as := a.cv.cloud.AssumptionByID(row.id)
-	if as == nil {
-		return nil
-	}
 	return a.ed.Open(editTarget{kind: editInjectionText, breaks: []string{as.ID}},
-		fmt.Sprintf("%s · new injection", row.arrow),
-		"What change makes this assumption irrelevant? "+shorten(as.Text, 60),
+		fmt.Sprintf("%s · answer", arrow),
+		"What change makes this claim irrelevant? "+shorten(as.Text, 60),
 		"", a.width, false)
 }
 
 // selectInjectionRow puts the cursor on an injection row.
-func (a *App) selectInjectionRow(id string) {
-	for i, row := range a.assumptionRows() {
-		if row.injectionID == id {
-			a.cv.assumptionCursor = i
-			return
-		}
-	}
-}
 
 // editInjection opens the selected injection's idea.
 func (a *App) editInjection(id string) tea.Cmd {
@@ -511,20 +483,20 @@ func (a *App) editInjection(id string) tea.Cmd {
 
 // editInjectionRationale records why the injection works.
 func (a *App) editInjectionRationale() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
-	if !ok || row.injectionID == "" {
-		return a.setFlash("The rationale belongs to an injection.", false)
-	}
-	injection := a.cv.cloud.InjectionByID(row.injectionID)
-	if injection == nil {
+	as, ok := a.selectedAssumption()
+	if !ok {
 		return nil
 	}
-	return a.ed.Open(editTarget{kind: editInjectionRationale, id: injection.ID},
-		"Injection · why it works", "Does it reach the objective without breaking anything else?",
-		injection.Rationale, a.width, true)
+	answer := a.cv.cloud.InjectionBreaking(as.ID)
+	if answer == nil {
+		return a.setFlash("There is no answer yet; i starts one.", false)
+	}
+	return a.ed.Open(editTarget{kind: editInjectionRationale, id: answer.ID},
+		"Answer · why it works", "Does it reach the objective without breaking anything else?",
+		answer.Rationale, a.width, true)
 }
 
 // askDeleteInjection confirms before removing an injection.
@@ -538,7 +510,6 @@ func (a *App) askDeleteInjection(id string) tea.Cmd {
 		question: fmt.Sprintf("Delete the injection %q?", shorten(text, 40)),
 		onYes: func(app *App) tea.Cmd {
 			app.cv.cloud.RemoveInjection(id)
-			app.clampAssumptionCursor()
 			return app.persist()
 		},
 	}
@@ -569,49 +540,33 @@ func (a *App) arrowHint(arrow Arrow) string {
 
 // cycleVerdict moves the selected assumption through the four judgements.
 func (a *App) cycleVerdict() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
+	as, ok := a.selectedAssumption()
 	if !ok {
+		return a.setFlash("Add a claim first; the verdict belongs to it.", false)
+	}
+	live := a.cv.cloud.AssumptionByID(as.ID)
+	if live == nil {
 		return nil
 	}
-	if row.injectionID != "" {
-		return a.setFlash("Verdicts apply to assumptions, not injections.", false)
-	}
-	if row.id == "" {
-		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
-	}
-	as := a.cv.cloud.AssumptionByID(row.id)
-	if as == nil {
-		return nil
-	}
-	as.Verdict = as.Verdict.Next()
-	return tea.Batch(a.persist(), a.setFlash("Marked "+as.Verdict.String()+".", false))
+	live.Verdict = live.Verdict.Next()
+	return tea.Batch(a.persist(), a.setFlash("Marked "+live.Verdict.String()+".", false))
 }
 
 // editEvidence records why an assumption is judged the way it is.
 func (a *App) editEvidence() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
+	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	row, ok := a.selectedAssumptionRow()
+	as, ok := a.selectedAssumption()
 	if !ok {
-		return nil
+		return a.setFlash("Add a claim first; the evidence belongs to it.", false)
 	}
-	if row.injectionID != "" {
-		return a.setFlash("That is an injection; r explains why it works.", false)
-	}
-	if row.id == "" {
-		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
-	}
-	as := a.cv.cloud.AssumptionByID(row.id)
-	if as == nil {
-		return nil
-	}
-	return a.ed.Open(editTarget{kind: editAssumptionEvidence, id: as.ID, arrow: row.arrow},
-		fmt.Sprintf("%s · evidence", row.arrow),
-		"What makes this hold, or fail? Cite what you have seen.",
+	arrow, _ := a.challengeArrow()
+	return a.ed.Open(editTarget{kind: editAssumptionEvidence, id: as.ID, arrow: arrow},
+		fmt.Sprintf("%s · evidence", arrow), "What makes this claim hold, or fail?",
 		as.Evidence, a.width, true)
 }
 
@@ -626,7 +581,7 @@ func (a *App) askDeleteAssumption(id string) tea.Cmd {
 		question: fmt.Sprintf("Delete the assumption %q?", shorten(text, 40)),
 		onYes: func(app *App) tea.Cmd {
 			app.cv.cloud.RemoveAssumption(id)
-			app.clampAssumptionCursor()
+			app.clampChallenge()
 			return app.persist()
 		},
 	}
@@ -634,20 +589,16 @@ func (a *App) askDeleteAssumption(id string) tea.Cmd {
 }
 
 // clampAssumptionCursor keeps the cursor inside the row list.
-func (a *App) clampAssumptionCursor() {
-	last := len(a.assumptionRows()) - 1
-	a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor, last))
+func (a *App) clampChallenge() {
+	last := len(a.challengeAssumptions()) - 1
+	if last < 0 {
+		a.cv.challengeAssumption = 0
+		return
+	}
+	a.cv.challengeAssumption = max(0, min(a.cv.challengeAssumption, last))
 }
 
 // selectedAssumptionRow is the row under the cursor in the assumptions pane.
-func (a *App) selectedAssumptionRow() (assumptionRow, bool) {
-	rows := a.assumptionRows()
-	if len(rows) == 0 {
-		return assumptionRow{}, false
-	}
-	index := max(0, min(a.cv.assumptionCursor, len(rows)-1))
-	return rows[index], true
-}
 
 // applyEdit writes a saved value back into the model and persists it.
 func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
@@ -676,7 +627,7 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 		}
 		if target.id == "" {
 			id := a.cv.cloud.AddAssumption(target.arrow, value)
-			a.selectAssumption(id)
+			a.focusClaim(target.arrow, id)
 		} else if as := a.cv.cloud.AssumptionByID(target.id); as != nil {
 			as.Text = OneLine(value)
 		}
@@ -693,10 +644,14 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 			return nil
 		}
 		if target.id == "" {
-			id := a.cv.cloud.AddInjection(target.breaks, value)
-			a.selectInjectionRow(id)
+			a.cv.cloud.AddInjection(target.breaks, value)
 		} else if injection := a.cv.cloud.InjectionByID(target.id); injection != nil {
-			injection.Text = OneLine(value)
+			// The answer is not a row of its own, so emptying it is how it goes.
+			if strings.TrimSpace(value) == "" {
+				a.cv.cloud.RemoveInjection(injection.ID)
+			} else {
+				injection.Text = OneLine(value)
+			}
 		}
 		return a.persist()
 
@@ -710,10 +665,19 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 }
 
 // selectAssumption puts the cursor on an assumption wherever it sorts.
-func (a *App) selectAssumption(id string) {
-	for i, row := range a.assumptionRows() {
-		if row.id == id {
-			a.cv.assumptionCursor = i
+
+// focusClaim brings an arrow into the form and puts the cursor on one claim.
+func (a *App) focusClaim(arrow Arrow, id string) {
+	arrows := a.challengeArrows()
+	for i, candidate := range arrows {
+		if candidate == arrow {
+			a.cv.challengeArrow = i
+			break
+		}
+	}
+	for i, as := range a.cv.cloud.AssumptionsFor(arrow) {
+		if as.ID == id {
+			a.cv.challengeAssumption = i
 			return
 		}
 	}

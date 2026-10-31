@@ -143,7 +143,7 @@ func TestTabsShowEveryPaneAndTheActiveOne(t *testing.T) {
 	a.Update(keyMsg("enter"))
 
 	view := a.View().Content
-	for _, label := range []string{"1 statements", "2 cloud", "3 assumptions", "4 process"} {
+	for _, label := range []string{"1 statements", "2 cloud", "3 challenge", "4 process"} {
 		if !strings.Contains(view, label) {
 			t.Errorf("tab bar missing %q:\n%s", label, ansi.Strip(view))
 		}
@@ -154,7 +154,7 @@ func TestTabsShowEveryPaneAndTheActiveOne(t *testing.T) {
 	}
 
 	a.Update(keyMsg("3"))
-	if !strings.Contains(a.View().Content, a.styles.TabActive.Render("3 assumptions")) {
+	if !strings.Contains(a.View().Content, a.styles.TabActive.Render("3 challenge")) {
 		t.Error("the active chip did not follow the pane")
 	}
 }
@@ -172,24 +172,39 @@ func TestTabBarIsSeparatedFromThePane(t *testing.T) {
 	}
 }
 
-func TestLeftAndRightSwitchPanes(t *testing.T) {
+func TestTabChangesPanesAndArrowsChangeArrows(t *testing.T) {
 	a := newSizedApp(t, 120, 30)
 	a.Update(keyMsg("enter"))
 	if a.cv.pane != paneStatements {
 		t.Fatalf("opened on %v", a.cv.pane)
 	}
 
-	a.Update(keyMsg("right"))
+	// Tab is the only thing that changes pane.
+	a.Update(keyMsg("tab"))
 	if a.cv.pane != paneCloud {
-		t.Errorf("right moved to %v, want cloud", a.cv.pane)
+		t.Errorf("tab moved to %v, want cloud", a.cv.pane)
+	}
+	a.Update(keyMsg("tab"))
+	if a.cv.pane != paneChallenge {
+		t.Errorf("tab moved to %v, want challenge", a.cv.pane)
+	}
+
+	// Left and right move between arrows inside the pane, never between panes.
+	a.Update(keyMsg("right"))
+	if a.cv.pane != paneChallenge {
+		t.Errorf("right changed pane to %v", a.cv.pane)
+	}
+	if a.cv.challengeArrow != 1 {
+		t.Errorf("right moved arrow to %d, want 1", a.cv.challengeArrow)
 	}
 	a.Update(keyMsg("left"))
-	if a.cv.pane != paneStatements {
-		t.Errorf("left moved to %v, want statements", a.cv.pane)
+	if a.cv.challengeArrow != 0 {
+		t.Errorf("left moved arrow to %d, want 0", a.cv.challengeArrow)
 	}
-	a.Update(keyMsg("left"))
-	if a.cv.pane != paneProcess {
-		t.Errorf("left from the first pane = %v, want wrap to process", a.cv.pane)
+
+	a.Update(keyMsg("shift+tab"))
+	if a.cv.pane != paneCloud {
+		t.Errorf("shift+tab moved to %v, want cloud", a.cv.pane)
 	}
 }
 
@@ -199,37 +214,28 @@ func TestEveryArrowShowsItsSentenceInFull(t *testing.T) {
 	a.Update(keyMsg("enter"))
 	a.Update(keyMsg("3"))
 
-	plain := ansi.Strip(a.renderAssumptions(200, 30))
-	if got := strings.Count(plain, "╭─"); got != len(Arrows()) {
-		t.Fatalf("pane has %d arrow cards, want %d:\n%s", got, len(Arrows()), plain)
-	}
-
-	// A wrapped sentence is split by the card's borders; drop them before
-	// looking for it as one string.
-	unframed := strings.NewReplacer(
-		"│", " ", "╭", " ", "╮", " ", "╰", " ", "╯", " ", "─", " ",
-	).Replace(plain)
-	flat := strings.Join(strings.Fields(unframed), " ")
-	for _, arrow := range Arrows() {
+	for i, arrow := range Arrows() {
+		a.cv.challengeArrow = i
+		plain := strings.Join(strings.Fields(ansi.Strip(a.renderChallenge(200, 30))), " ")
 		reading := strings.Join(strings.Fields(arrow.Reading(&a.cv.cloud)), " ")
-		if !strings.Contains(flat, reading) {
+		if !strings.Contains(plain, reading) {
 			t.Errorf("%s: sentence is not shown in full", arrow)
 		}
 	}
 }
 
-func TestSelectedAssumptionCarriesItsEvidence(t *testing.T) {
+func TestSelectedClaimCarriesItsEvidence(t *testing.T) {
 	a := newSizedApp(t, 80, 24)
 	a.Update(keyMsg("enter"))
 	a.Update(keyMsg("3"))
 
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
 	a.cv.cloud.AssumptionByID(id).Evidence = "three regressions shipped last quarter"
-	a.selectAssumption(id)
+	a.focusClaim(ArrowBD, id)
 
-	plain := strings.Join(strings.Fields(ansi.Strip(a.renderAssumptions(80, 20))), " ")
+	plain := strings.Join(strings.Fields(ansi.Strip(a.renderChallenge(80, 20))), " ")
 	if !strings.Contains(plain, "three regressions shipped last quarter") {
-		t.Errorf("evidence is not shown with its assumption:\n%s", plain)
+		t.Errorf("evidence is not shown with its claim:\n%s", plain)
 	}
 }
 
