@@ -107,11 +107,8 @@ func TestPaneCycle(t *testing.T) {
 	if got := paneCloud.next(1); got != paneAssumptions {
 		t.Errorf("cloud.next(1) = %v", got)
 	}
-	if got := paneAssumptions.next(1); got != paneInjections {
+	if got := paneAssumptions.next(1); got != paneProcess {
 		t.Errorf("assumptions.next(1) = %v", got)
-	}
-	if got := paneInjections.next(1); got != paneProcess {
-		t.Errorf("injections.next(1) = %v", got)
 	}
 	if got := paneProcess.next(1); got != paneStatements {
 		t.Errorf("process.next(1) = %v, want wrap", got)
@@ -123,7 +120,6 @@ func TestPaneCycle(t *testing.T) {
 		"statements":  paneStatements,
 		"cloud":       paneCloud,
 		"assumptions": paneAssumptions,
-		"injections":  paneInjections,
 		"process":     paneProcess,
 	} {
 		if got := p.String(); got != want {
@@ -534,38 +530,54 @@ func TestInjectAgainstAnAssumption(t *testing.T) {
 	}
 }
 
-func TestAddInjectionTargetsTheWeakestAssumption(t *testing.T) {
+func TestInjectAgainstTheSelectedAssumption(t *testing.T) {
 	a := openAssumptions(t)
-	strong := a.cv.cloud.AddAssumption(ArrowAC, "the registry is authoritative")
-	a.cv.cloud.AssumptionByID(strong).Verdict = Holds
-	weak := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	a.cv.cloud.AssumptionByID(weak).Verdict = Invalid
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
+	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
+	a.selectAssumption(id)
 
-	a.cv.pane = paneInjections
-	a.Update(keyMsg("a"))
-	typeString(a, "automate the review")
+	a.Update(keyMsg("i"))
+	if !a.ed.open {
+		t.Fatal("i did not open the injection editor")
+	}
+	typeString(a, "pair every change with a test")
 	a.Update(keyMsg("enter"))
 
 	if len(a.cv.cloud.Injections) != 1 {
 		t.Fatalf("injections = %d, want 1", len(a.cv.cloud.Injections))
 	}
-	if got := a.cv.cloud.Injections[0].Breaks; len(got) != 1 || got[0] != weak {
-		t.Errorf("injection breaks %v, want the invalid assumption", got)
+	injection := a.cv.cloud.Injections[0]
+	if len(injection.Breaks) != 1 || injection.Breaks[0] != id {
+		t.Errorf("injection breaks %v, want the selected assumption", injection.Breaks)
+	}
+
+	// The new injection is listed under the assumption it answers.
+	row, ok := a.selectedAssumptionRow()
+	if !ok || row.injectionID != injection.ID {
+		t.Errorf("cursor did not follow the new injection: %+v", row)
 	}
 }
 
-func TestAddInjectionWhenEverythingIsBroken(t *testing.T) {
+func TestInjectOpensTheInjectionThatAlreadyAnswers(t *testing.T) {
 	a := openAssumptions(t)
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
-	a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+	a.selectAssumption(id)
 
-	a.cv.pane = paneInjections
-	a.Update(keyMsg("a"))
-	if a.ed.open {
-		t.Error("the editor opened with nothing left to break")
+	a.Update(keyMsg("i"))
+	if !a.ed.open {
+		t.Fatal("i did not open the existing injection")
 	}
-	if a.flash.text == "" {
-		t.Error("no explanation when there is nothing to inject against")
+	if got := a.ed.Value(); got != "automate the review" {
+		t.Errorf("editor value = %q, want the existing idea", got)
+	}
+	a.Update(keyMsg("esc"))
+
+	if len(a.cv.cloud.Injections) != 1 {
+		t.Errorf("injections = %d, want no duplicate", len(a.cv.cloud.Injections))
+	}
+	if row, _ := a.selectedAssumptionRow(); row.injectionID != injectionID {
+		t.Error("the cursor did not move to the existing injection")
 	}
 }
 
@@ -574,8 +586,7 @@ func TestInjectionRationaleIsSaved(t *testing.T) {
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
 	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
 
-	a.cv.pane = paneInjections
-	a.selectInjection(injectionID)
+	a.selectInjectionRow(injectionID)
 	a.Update(keyMsg("r"))
 	if !a.ed.open {
 		t.Fatal("r did not open the rationale editor")
@@ -593,8 +604,7 @@ func TestDeleteInjectionNeedsConfirmation(t *testing.T) {
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
 	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
 
-	a.cv.pane = paneInjections
-	a.selectInjection(injectionID)
+	a.selectInjectionRow(injectionID)
 
 	a.Update(keyMsg("x"))
 	if a.confirm == nil {
@@ -614,8 +624,6 @@ func TestDeleteInjectionNeedsConfirmation(t *testing.T) {
 
 func TestVerificationRequiresABrokenAssumption(t *testing.T) {
 	a := openAssumptions(t)
-	a.cv.pane = paneProcess
-
 	a.Update(keyMsg("V"))
 	if a.cv.cloud.Verified {
 		t.Error("verified a cloud where nothing is broken")
@@ -623,6 +631,37 @@ func TestVerificationRequiresABrokenAssumption(t *testing.T) {
 	if a.flash.text == "" {
 		t.Error("no explanation for refusing to verify")
 	}
+}
+
+func TestVerifyWorksFromAnyPane(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches everything")
+	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
+	a.cv.cloud.AddInjection([]string{id}, "automate the review")
+
+	a.cv.pane = paneStatements
+	a.Update(keyMsg("V"))
+	if !a.cv.cloud.Verified {
+		t.Error("V did not verify from the statements pane")
+	}
+}
+
+func TestInjectionSitsUnderItsAssumption(t *testing.T) {
+	a := openAssumptions(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
+	injectionID := a.cv.cloud.AddInjection([]string{id}, "automate the review")
+
+	rows := a.assumptionRows()
+	for i, row := range rows {
+		if row.injectionID != injectionID {
+			continue
+		}
+		if i == 0 || rows[i-1].id != id {
+			t.Error("the injection is not directly under its assumption")
+		}
+		return
+	}
+	t.Errorf("injection row not found in %d rows", len(rows))
 }
 
 func TestVerificationDissolvesTheCloud(t *testing.T) {

@@ -277,7 +277,7 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, a.add()
 
 	case key.Matches(msg, a.keys.Inject):
-		return a, a.injectAgainstSelected()
+		return a, a.injectHere()
 
 	case key.Matches(msg, a.keys.Why):
 		return a, a.editInjectionRationale()
@@ -312,16 +312,12 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
-	switch a.cv.pane {
-	case paneAssumptions:
+	if a.cv.pane == paneAssumptions {
 		last := len(a.assumptionRows()) - 1
 		a.cv.assumptionCursor = max(0, min(a.cv.assumptionCursor+delta, last))
-	case paneInjections:
-		last := len(a.cv.cloud.Injections) - 1
-		a.cv.injectionCursor = max(0, min(a.cv.injectionCursor+delta, last))
-	default:
-		a.cv.move(delta, len(SlotInfos()))
+		return
 	}
+	a.cv.move(delta, len(SlotInfos()))
 }
 
 // activate handles enter: edit the highlighted statement or assumption.
@@ -330,12 +326,26 @@ func (a *App) activate() tea.Cmd {
 	case paneStatements:
 		return a.startInline()
 	case paneAssumptions:
-		return a.editAssumption()
-	case paneInjections:
-		return a.editInjection()
+		return a.editSelectedRow()
 	}
 	a.cv.pane = paneStatements
 	return nil
+}
+
+// editSelectedRow edits whatever the cursor rests on: an assumption's text, an
+// injection's idea, or a new assumption under a heading.
+func (a *App) editSelectedRow() tea.Cmd {
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+	switch {
+	case row.injectionID != "":
+		return a.editInjection(row.injectionID)
+	case row.id != "":
+		return a.editAssumption()
+	}
+	return a.addAssumption()
 }
 
 // partyEdit tracks the two-step edit of the side names.
@@ -420,29 +430,14 @@ func (a *App) addAssumption() tea.Cmd {
 
 // add dispatches the add key to whichever pane is open.
 func (a *App) add() tea.Cmd {
-	switch a.cv.pane {
-	case paneAssumptions:
-		return a.addAssumption()
-	case paneInjections:
-		return a.addInjection()
+	if a.cv.pane != paneAssumptions {
+		return nil
 	}
-	return nil
+	return a.addAssumption()
 }
 
 // deleteSelected dispatches the delete key to whichever pane is open.
 func (a *App) deleteSelected() tea.Cmd {
-	switch a.cv.pane {
-	case paneAssumptions:
-		return a.askDeleteAssumption()
-	case paneInjections:
-		return a.askDeleteInjection()
-	}
-	return nil
-}
-
-// injectAgainstSelected starts an injection against the assumption under the
-// cursor: the step that dissolves a cloud.
-func (a *App) injectAgainstSelected() tea.Cmd {
 	if a.cv.pane != paneAssumptions {
 		return nil
 	}
@@ -450,9 +445,39 @@ func (a *App) injectAgainstSelected() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	switch {
+	case row.injectionID != "":
+		return a.askDeleteInjection(row.injectionID)
+	case row.id != "":
+		return a.askDeleteAssumption(row.id)
+	}
+	return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
+}
+
+// injectAgainstSelected starts an injection against the assumption under the
+// cursor: the step that dissolves a cloud.
+func (a *App) injectHere() tea.Cmd {
+	if a.cv.pane != paneAssumptions {
+		return nil
+	}
+	row, ok := a.selectedAssumptionRow()
+	if !ok {
+		return nil
+	}
+
+	// On an injection, i opens it. On an assumption, it opens the injection
+	// that answers it, or starts one.
+	if row.injectionID != "" {
+		return a.editInjection(row.injectionID)
+	}
 	if row.id == "" {
 		return a.setFlash("Injections attach to assumptions.", false)
 	}
+	if existing := a.cv.cloud.InjectionBreaking(row.id); existing != nil {
+		a.selectInjectionRow(existing.ID)
+		return a.editInjection(existing.ID)
+	}
+
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
 		return nil
@@ -463,28 +488,20 @@ func (a *App) injectAgainstSelected() tea.Cmd {
 		"", a.width, false)
 }
 
-// addInjection starts an injection against the weakest unbroken assumption.
-func (a *App) addInjection() tea.Cmd {
-	if a.cv.pane != paneInjections {
-		return nil
+// selectInjectionRow puts the cursor on an injection row.
+func (a *App) selectInjectionRow(id string) {
+	for i, row := range a.assumptionRows() {
+		if row.injectionID == id {
+			a.cv.assumptionCursor = i
+			return
+		}
 	}
-	target, ok := a.nextInjectionTarget()
-	if !ok {
-		return a.setFlash("Every assumption already has an injection.", false)
-	}
-	return a.ed.Open(editTarget{kind: editInjectionText, breaks: []string{target.ID}},
-		fmt.Sprintf("%s · new injection", target.Arrow),
-		"Breaking: "+shorten(target.Text, 70),
-		"", a.width, false)
 }
 
 // editInjection opens the selected injection's idea.
-func (a *App) editInjection() tea.Cmd {
-	if a.cv.pane != paneInjections {
-		return nil
-	}
-	injection, ok := a.selectedInjection()
-	if !ok {
+func (a *App) editInjection(id string) tea.Cmd {
+	injection := a.cv.cloud.InjectionByID(id)
+	if injection == nil {
 		return nil
 	}
 	return a.ed.Open(editTarget{kind: editInjectionText, id: injection.ID},
@@ -494,11 +511,15 @@ func (a *App) editInjection() tea.Cmd {
 
 // editInjectionRationale records why the injection works.
 func (a *App) editInjectionRationale() tea.Cmd {
-	if a.cv.pane != paneInjections {
+	if a.cv.pane != paneAssumptions {
 		return nil
 	}
-	injection, ok := a.selectedInjection()
-	if !ok {
+	row, ok := a.selectedAssumptionRow()
+	if !ok || row.injectionID == "" {
+		return a.setFlash("The rationale belongs to an injection.", false)
+	}
+	injection := a.cv.cloud.InjectionByID(row.injectionID)
+	if injection == nil {
 		return nil
 	}
 	return a.ed.Open(editTarget{kind: editInjectionRationale, id: injection.ID},
@@ -507,21 +528,17 @@ func (a *App) editInjectionRationale() tea.Cmd {
 }
 
 // askDeleteInjection confirms before removing an injection.
-func (a *App) askDeleteInjection() tea.Cmd {
-	if a.cv.pane != paneInjections {
+func (a *App) askDeleteInjection(id string) tea.Cmd {
+	injection := a.cv.cloud.InjectionByID(id)
+	if injection == nil {
 		return nil
 	}
-	injection, ok := a.selectedInjection()
-	if !ok {
-		return nil
-	}
-	id, text := injection.ID, injection.Text
+	text := injection.Text
 	a.confirm = &confirmation{
 		question: fmt.Sprintf("Delete the injection %q?", shorten(text, 40)),
 		onYes: func(app *App) tea.Cmd {
 			app.cv.cloud.RemoveInjection(id)
-			last := len(app.cv.cloud.Injections) - 1
-			app.cv.injectionCursor = max(0, min(app.cv.injectionCursor, last))
+			app.clampAssumptionCursor()
 			return app.persist()
 		},
 	}
@@ -531,9 +548,6 @@ func (a *App) askDeleteInjection() tea.Cmd {
 // toggleVerified records that a person checked the injection really dissolves
 // the conflict. Status only becomes dissolved once this is set.
 func (a *App) toggleVerified() tea.Cmd {
-	if a.cv.pane != paneProcess && a.cv.pane != paneInjections {
-		return nil
-	}
 	c := &a.cv.cloud
 	if !c.Verified && len(c.BrokenAssumptions()) == 0 {
 		return a.setFlash("Nothing is broken yet: mark an assumption invalid and inject against it.", true)
@@ -562,6 +576,9 @@ func (a *App) cycleVerdict() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	if row.injectionID != "" {
+		return a.setFlash("Verdicts apply to assumptions, not injections.", false)
+	}
 	if row.id == "" {
 		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
 	}
@@ -582,6 +599,9 @@ func (a *App) editEvidence() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	if row.injectionID != "" {
+		return a.setFlash("That is an injection; r explains why it works.", false)
+	}
 	if row.id == "" {
 		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
 	}
@@ -596,22 +616,12 @@ func (a *App) editEvidence() tea.Cmd {
 }
 
 // askDeleteAssumption confirms before removing an assumption.
-func (a *App) askDeleteAssumption() tea.Cmd {
-	if a.cv.pane != paneAssumptions {
-		return nil
-	}
-	row, ok := a.selectedAssumptionRow()
-	if !ok {
-		return nil
-	}
-	if row.id == "" {
-		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
-	}
-	as := a.cv.cloud.AssumptionByID(row.id)
+func (a *App) askDeleteAssumption(id string) tea.Cmd {
+	as := a.cv.cloud.AssumptionByID(id)
 	if as == nil {
 		return nil
 	}
-	id, text := as.ID, as.Text
+	text := as.Text
 	a.confirm = &confirmation{
 		question: fmt.Sprintf("Delete the assumption %q?", shorten(text, 40)),
 		onYes: func(app *App) tea.Cmd {
@@ -684,7 +694,7 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 		}
 		if target.id == "" {
 			id := a.cv.cloud.AddInjection(target.breaks, value)
-			a.selectInjection(id)
+			a.selectInjectionRow(id)
 		} else if injection := a.cv.cloud.InjectionByID(target.id); injection != nil {
 			injection.Text = OneLine(value)
 		}

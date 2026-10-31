@@ -143,7 +143,7 @@ func TestTabsShowEveryPaneAndTheActiveOne(t *testing.T) {
 	a.Update(keyMsg("enter"))
 
 	view := a.View().Content
-	for _, label := range []string{"1 statements", "2 cloud", "3 assumptions", "4 injections", "5 process"} {
+	for _, label := range []string{"1 statements", "2 cloud", "3 assumptions", "4 process"} {
 		if !strings.Contains(view, label) {
 			t.Errorf("tab bar missing %q:\n%s", label, ansi.Strip(view))
 		}

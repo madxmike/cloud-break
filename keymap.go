@@ -81,8 +81,7 @@ func newKeyMap() keyMap {
 			jump("1", "statements"),
 			jump("2", "cloud"),
 			jump("3", "assumptions"),
-			jump("4", "injections"),
-			jump("5", "process"),
+			jump("4", "process"),
 		},
 	}
 }
@@ -132,9 +131,7 @@ func (a *App) footerBindings() []key.Binding {
 
 	switch a.cv.pane {
 	case paneAssumptions:
-		return []key.Binding{k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Delete}
-	case paneInjections:
-		return []key.Binding{k.Move, k.Add, k.Edit, k.Why, k.Verify, k.Delete}
+		return []key.Binding{k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Why, k.Delete}
 	case paneProcess:
 		return []key.Binding{k.Verify, k.Back}
 	case paneCloud:
@@ -167,7 +164,7 @@ func (a *App) helpSections() []helpSection {
 		{
 			title: "Cloud",
 			keys: []key.Binding{
-				k.Edit, k.Add, k.Verdict, k.Evidence, k.Inject,
+				k.Edit, k.Add, k.Verdict, k.Evidence, k.Inject, k.Why,
 				k.Verify, k.Title, k.Sides, k.Delete, k.Back,
 			},
 		},

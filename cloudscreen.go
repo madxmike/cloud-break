@@ -15,12 +15,11 @@ const (
 	paneStatements pane = iota
 	paneCloud
 	paneAssumptions
-	paneInjections
 	paneProcess
 )
 
 // cloudPanes is the switch order for the pane keys.
-var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions, paneInjections, paneProcess}
+var cloudPanes = []pane{paneStatements, paneCloud, paneAssumptions, paneProcess}
 
 func (p pane) String() string {
 	switch p {
@@ -28,8 +27,6 @@ func (p pane) String() string {
 		return "cloud"
 	case paneAssumptions:
 		return "assumptions"
-	case paneInjections:
-		return "injections"
 	case paneProcess:
 		return "process"
 	}
@@ -101,8 +98,6 @@ func (a *App) renderPane(width, height int) string {
 		return a.renderDiagramPane(width, height)
 	case paneAssumptions:
 		return a.renderAssumptions(width, height)
-	case paneInjections:
-		return a.renderInjections(width, height)
 	case paneProcess:
 		return a.renderProcess(width, height)
 	default:
@@ -130,8 +125,9 @@ func (a *App) renderDiagramPane(width, height int) string {
 // assumptionRow is one line of the assumptions pane: an arrow heading, or one
 // assumption behind that arrow.
 type assumptionRow struct {
-	arrow Arrow
-	id    string // empty on a heading
+	arrow       Arrow
+	id          string // the assumption, empty on a heading
+	injectionID string // an injection against the assumption above it
 }
 
 // assumptionRows flattens the cloud into headings and assumptions, so a single
@@ -148,6 +144,13 @@ func (a *App) assumptionRows() []assumptionRow {
 		rows = append(rows, assumptionRow{arrow: arrow})
 		for _, as := range a.cv.cloud.AssumptionsFor(arrow) {
 			rows = append(rows, assumptionRow{arrow: arrow, id: as.ID})
+			// The injection that answers an assumption sits under it, so the
+			// verdict, the breakthrough and the evidence are one block.
+			for _, injection := range a.cv.cloud.Injections {
+				if contains(injection.Breaks, as.ID) {
+					rows = append(rows, assumptionRow{arrow: arrow, injectionID: injection.ID})
+				}
+			}
 		}
 	}
 	return rows
@@ -157,7 +160,9 @@ func (a *App) assumptionRows() []assumptionRow {
 func (a *App) assumptionGroups() [][]assumptionRow {
 	var groups [][]assumptionRow
 	for _, row := range a.assumptionRows() {
-		if row.id == "" {
+		// Only a heading starts a card; an injection row also has no
+		// assumption id, but it belongs to the card above it.
+		if row.id == "" && row.injectionID == "" {
 			groups = append(groups, []assumptionRow{row})
 			continue
 		}
@@ -241,11 +246,16 @@ func (a *App) arrowCard(arrow Arrow, assumptions []assumptionRow, selectedRow in
 	}
 
 	for i, row := range assumptions {
+		selected := focused && selectedRow == i+1
+		if row.injectionID != "" {
+			body = append(body, a.injectionLine(row.injectionID, selected, inner))
+			continue
+		}
 		as := a.cv.cloud.AssumptionByID(row.id)
 		if as == nil {
 			continue
 		}
-		body = append(body, a.assumptionText(*as, focused && selectedRow == i+1, inner))
+		body = append(body, a.assumptionText(*as, selected, inner))
 	}
 
 	if len(body) == 0 {
@@ -327,100 +337,35 @@ func (a *App) assumptionText(as Assumption, selected bool, width int) string {
 	return line
 }
 
-// renderInjections lists the breakthroughs and what each one breaks.
-func (a *App) renderInjections(width, height int) string {
-	injections := a.cv.cloud.Injections
-	if len(injections) == 0 {
-		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
-			a.styles.Dim.Width(min(width, 50)).Align(lipgloss.Center).
-				Render("No injections yet.\n\nAn injection breaks an invalid assumption."))
+// injectionLine is the breakthrough under an assumption: the idea, and why it
+// works once there is a reason to show.
+func (a *App) injectionLine(id string, selected bool, width int) string {
+	injection := a.cv.cloud.InjectionByID(id)
+	if injection == nil {
+		return ""
 	}
 
-	selected := max(0, min(a.cv.injectionCursor, len(injections)-1))
-	blocks := make([]string, len(injections))
-	heights := make([]int, len(injections))
-	for i, injection := range injections {
-		blocks[i] = a.injectionBlock(injection, i == selected, width)
-		heights[i] = lipgloss.Height(blocks[i])
-	}
-
-	start, end := visibleRange(heights, selected, height)
-	return strings.Join(blocks[start:end], "\n")
-}
-
-// injectionBlock renders one breakthrough: the idea, what it breaks, and why.
-func (a *App) injectionBlock(injection Injection, selected bool, width int) string {
-	marker := "  "
+	marker := "     "
 	if selected {
-		marker = "▸ "
+		marker = "   ▸ "
 	}
-
 	text := a.styles.CardValue
 	if selected {
 		text = a.styles.Strong
 	}
-	head := marker + a.styles.Warning.Render("⚡") + " " +
-		text.Render(truncate(injection.Text, max(8, width-6)))
 
-	indent := " " + strings.Repeat(" ", lipgloss.Width(marker)+2)
-	room := max(8, width-lipgloss.Width(indent)-2)
+	room := max(8, width-lipgloss.Width(marker)-3)
+	line := marker + a.styles.Warning.Render("⚡") + " " + text.Render(truncate(injection.Text, room))
 
-	broken := a.cv.cloud.BrokenBy(&injection)
-	summary := "breaks nothing yet, so it cannot evaporate anything"
-	if len(broken) > 0 {
-		parts := make([]string, 0, len(broken))
-		for _, as := range broken {
-			parts = append(parts, fmt.Sprintf("%s (%s)", as.Arrow, as.Verdict))
-		}
-		summary = "breaks " + strings.Join(parts, ", ")
-	}
-
-	rows := []string{
-		fitLine(head, width),
-		fitLine(indent+a.styles.Faint.Render(truncate(summary, room)), width),
+	if !selected {
+		return line
 	}
 	if rationale := strings.TrimSpace(injection.Rationale); rationale != "" {
-		rows = append(rows, fitLine(indent+a.styles.Dim.Render(truncate("why: "+rationale, room)), width))
+		line += "\n" + a.indented("why: "+rationale, "       ", width)
 	}
-	return strings.Join(rows, "\n")
+	return line
 }
 
-// nextInjectionTarget picks the assumption most worth injecting against: the
-// weakest one that nothing has broken yet.
-func (a *App) nextInjectionTarget() (Assumption, bool) {
-	c := &a.cv.cloud
-	if weak := c.Weakest(); weak != nil && c.InjectionBreaking(weak.ID) == nil {
-		return *weak, true
-	}
-	for _, as := range c.Assumptions {
-		if c.InjectionBreaking(as.ID) == nil {
-			return as, true
-		}
-	}
-	return Assumption{}, false
-}
-
-// selectedInjection is the injection under the cursor.
-func (a *App) selectedInjection() (Injection, bool) {
-	injections := a.cv.cloud.Injections
-	if len(injections) == 0 {
-		return Injection{}, false
-	}
-	index := max(0, min(a.cv.injectionCursor, len(injections)-1))
-	return injections[index], true
-}
-
-// selectInjection moves the cursor onto an injection.
-func (a *App) selectInjection(id string) {
-	for i, injection := range a.cv.cloud.Injections {
-		if injection.ID == id {
-			a.cv.injectionCursor = i
-			return
-		}
-	}
-}
-
-// renderProcess shows the five-stage method and whatever still stands in the way.
 func (a *App) renderProcess(width, height int) string {
 	c := &a.cv.cloud
 	var lines []string
