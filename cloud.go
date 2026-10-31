@@ -61,21 +61,21 @@ func SlotInfos() []SlotInfo {
 			Slot:   SlotA,
 			Name:   "Objective",
 			Prompt: "What do both sides actually want?",
-			Hint:   "The shared aim both needs serve. Not a position.",
+			Hint:   "The outcome both sides want to reach.",
 			Side:   0,
 		},
 		{
 			Slot:   SlotB,
 			Name:   "Need",
 			Prompt: "What does the first side need in order to reach the objective?",
-			Hint:   "A necessary condition, not a solution.",
+			Hint:   "A condition that must hold.",
 			Side:   1,
 		},
 		{
 			Slot:   SlotC,
 			Name:   "Need",
 			Prompt: "What does the second side need in order to reach the objective?",
-			Hint:   "As they would say it, not a rebuttal of B.",
+			Hint:   "Their own words for what they need.",
 			Side:   2,
 		},
 		{
@@ -668,7 +668,7 @@ func (c *Cloud) Validate() []Issue {
 		}
 		if isNegationOf(d, d2) {
 			issues = append(issues, Issue{SeverityInfo,
-				"D' is written as a straight negation of D. Name what the other side actually wants instead."})
+				"D' should name what the other side wants; right now it only negates D."})
 		}
 	}
 
@@ -710,7 +710,7 @@ func (c *Cloud) Validate() []Issue {
 	for _, as := range c.Assumptions {
 		if as.Verdict == Invalid && c.InjectionBreaking(as.ID) == nil {
 			issues = append(issues, Issue{SeverityInfo,
-				fmt.Sprintf("Assumption %q is invalid but nothing injects against it yet.", shorten(as.Text, 40))})
+				fmt.Sprintf("Assumption %q is invalid. Nothing injects against it yet.", shorten(as.Text, 40))})
 		}
 		if strings.TrimSpace(as.Text) == "" {
 			issues = append(issues, Issue{SeverityWarning, "An assumption has no text."})
@@ -719,7 +719,7 @@ func (c *Cloud) Validate() []Issue {
 
 	if c.Verified && len(c.BrokenAssumptions()) == 0 {
 		issues = append(issues, Issue{SeverityWarning,
-			"The cloud is marked verified but no injection breaks an invalid assumption."})
+			"The cloud is marked verified. No injection breaks an invalid assumption."})
 	}
 
 	return issues

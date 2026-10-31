@@ -210,7 +210,7 @@ func (a *App) handleLibraryKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, a.keys.New):
 		a.pendingNew = true
 		return a, a.ed.Open(editTarget{kind: editCloudTitle}, "New cloud",
-			"The conflict itself, not a proposed solution.", "", a.width, false)
+			"What the two sides disagree about.", "", a.width, false)
 
 	case key.Matches(msg, a.keys.DeleteCloud):
 		if c, ok := a.lib.selected(); ok {
@@ -385,7 +385,7 @@ func (a *App) injectAgainstSelected() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("Pick the assumption to break, not the arrow.", false)
+		return a.setFlash("Injections attach to assumptions.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -494,7 +494,7 @@ func (a *App) cycleVerdict() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("That row is an arrow, not an assumption.", false)
+		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -514,7 +514,7 @@ func (a *App) editEvidence() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("That row is an arrow, not an assumption.", false)
+		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -536,7 +536,7 @@ func (a *App) askDeleteAssumption() tea.Cmd {
 		return nil
 	}
 	if row.id == "" {
-		return a.setFlash("That row is an arrow, not an assumption.", false)
+		return a.setFlash("That row is an arrow heading; the assumptions sit under it.", false)
 	}
 	as := a.cv.cloud.AssumptionByID(row.id)
 	if as == nil {
@@ -883,7 +883,7 @@ func (a *App) contextLine() string {
 	if a.screen == screenCloud && a.cv.pane == paneInjections {
 		if injection, ok := a.selectedInjection(); ok {
 			if broken := a.cv.cloud.BrokenBy(&injection); len(broken) > 0 {
-				return "Breaks: " + broken[0].Text
+				return fmt.Sprintf("Breaks %s: %s", broken[0].Arrow, broken[0].Text)
 			}
 			return "This injection breaks no assumption, so the conflict stands."
 		}
@@ -907,7 +907,7 @@ func (a *App) contextLine() string {
 				}
 			}
 		}
-		return row.arrow.Reading(&a.cv.cloud)
+		return fmt.Sprintf("%s · %s", row.arrow, row.arrow.Reading(&a.cv.cloud))
 	}
 	if a.screen == screenCloud {
 		infos := SlotInfos()

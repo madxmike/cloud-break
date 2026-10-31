@@ -118,7 +118,7 @@ func TestViewShowsWireframeContent(t *testing.T) {
 	}
 
 	// The footer explains the highlighted slot.
-	if !strings.Contains(view, "shared aim") {
+	if !strings.Contains(view, "outcome both sides want to reach") {
 		t.Errorf("cloud footer missing the objective hint:\n%s", view)
 	}
 }

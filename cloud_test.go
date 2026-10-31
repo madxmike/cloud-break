@@ -235,7 +235,7 @@ func TestValidate(t *testing.T) {
 		c := resolved()
 		c.SetText(SlotD, "ship now")
 		c.SetText(SlotD2, "don't ship now")
-		if !hasIssue(c, SeverityInfo, "straight negation") {
+		if !hasIssue(c, SeverityInfo, "only negates D") {
 			t.Errorf("Validate = %v, want an info note about the negation", c.Validate())
 		}
 	})
@@ -270,7 +270,7 @@ func TestValidate(t *testing.T) {
 		c := resolved()
 		id := c.AddAssumption(ArrowBD, "weak")
 		c.AssumptionByID(id).Verdict = Invalid
-		if !hasIssue(c, SeverityInfo, "nothing injects against it") {
+		if !hasIssue(c, SeverityInfo, "Nothing injects against it") {
 			t.Errorf("Validate = %v, want an info note", c.Validate())
 		}
 	})
