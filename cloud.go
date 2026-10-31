@@ -45,12 +45,12 @@ const (
 	SlotD2 Slot = "D'" // want of the second side
 )
 
-// SlotInfo describes a slot for the interface: what to ask, and why.
+// SlotInfo describes a slot for the interface. Prompt is the question the slot
+// asks, shown only while it is empty.
 type SlotInfo struct {
 	Slot   Slot
 	Name   string
 	Prompt string
-	Hint   string
 	Side   int // 0 shared, 1 first side, 2 second side
 }
 
@@ -61,35 +61,30 @@ func SlotInfos() []SlotInfo {
 			Slot:   SlotA,
 			Name:   "Objective",
 			Prompt: "What do both sides actually want?",
-			Hint:   "The outcome both sides want to reach.",
 			Side:   0,
 		},
 		{
 			Slot:   SlotB,
 			Name:   "Need",
-			Prompt: "What does the first side need in order to reach the objective?",
-			Hint:   "A condition that must hold.",
+			Prompt: "What does the first side need to reach the objective?",
 			Side:   1,
 		},
 		{
 			Slot:   SlotC,
 			Name:   "Need",
-			Prompt: "What does the second side need in order to reach the objective?",
-			Hint:   "Their own words for what they need.",
+			Prompt: "What does the second side need to reach the objective?",
 			Side:   2,
 		},
 		{
 			Slot:   SlotD,
 			Name:   "Want",
-			Prompt: "What does the first side want to do to satisfy their need?",
-			Hint:   "The specific action being pushed for.",
+			Prompt: "What does the first side want to do about it?",
 			Side:   1,
 		},
 		{
 			Slot:   SlotD2,
 			Name:   "Want",
-			Prompt: "What does the second side want to do to satisfy their need?",
-			Hint:   "It must actually collide with the other want.",
+			Prompt: "What does the second side want to do about it?",
 			Side:   2,
 		},
 	}
@@ -604,7 +599,6 @@ func (c *Cloud) Steps() []Step {
 		{
 			Number: 1,
 			Title:  "State the conflict",
-			Hint:   "Fill in A, both needs, and the two colliding wants.",
 			Done:   c.Complete(),
 		},
 		{
@@ -616,19 +610,16 @@ func (c *Cloud) Steps() []Step {
 		{
 			Number: 3,
 			Title:  "Find the weak link",
-			Hint:   "Challenge each assumption until one cannot stand.",
 			Done:   hasInvalid,
 		},
 		{
 			Number: 4,
 			Title:  "Inject a breakthrough",
-			Hint:   "A change that makes the broken assumption irrelevant.",
 			Done:   broken,
 		},
 		{
 			Number: 5,
 			Title:  "Verify the cloud evaporates",
-			Hint:   "Confirm the injection dissolves the conflict without harming A.",
 			Done:   c.Verified && broken,
 		},
 	}

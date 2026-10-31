@@ -34,8 +34,6 @@ type Styles struct {
 	FootKey    lipgloss.Style
 	FootDesc   lipgloss.Style
 
-	Card             lipgloss.Style
-	CardFocused      lipgloss.Style
 	CardLabel        lipgloss.Style
 	CardLabelFocused lipgloss.Style
 	CardValue        lipgloss.Style
@@ -102,12 +100,6 @@ func NewStyles(isDark bool) Styles {
 
 	fg := func(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
 
-	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(border).
-		Padding(0, 1)
-	cardFocused := card.BorderForeground(accent)
-
 	box := func() lipgloss.Style {
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -133,8 +125,6 @@ func NewStyles(isDark bool) Styles {
 		FootKey:    fg(accent).Bold(true),
 		FootDesc:   fg(muted),
 
-		Card:             card,
-		CardFocused:      cardFocused,
 		CardLabel:        fg(muted).Bold(true),
 		CardLabelFocused: fg(accent).Bold(true),
 		CardValue:        lipgloss.NewStyle(),

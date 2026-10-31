@@ -206,7 +206,7 @@ func TestEditorSavesSingleLineOnEnter(t *testing.T) {
 
 func TestEditorMultiLineKeepsEnterForNewLines(t *testing.T) {
 	e := newEditor(true)
-	e.Open(editTarget{kind: editParties}, "Sides", "one per line", "", 80, true)
+	e.Open(editTarget{kind: editAssumptionEvidence}, "Evidence", "one per line", "", 80, true)
 
 	e.Update(keyMsg("a"))
 	result, _ := e.Update(keyMsg("enter"))

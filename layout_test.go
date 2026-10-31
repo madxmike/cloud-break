@@ -9,33 +9,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestNextStep(t *testing.T) {
-	draft := New("draft")
-	draft.SetText(SlotA, "ship on time")
-	if got := nextStep(*draft); !strings.Contains(got, "4 statements are") || !strings.Contains(got, "B, C, D, D'") {
-		t.Errorf("draft nextStep = %q", got)
-	}
-
-	single := New("one missing")
-	single.SetText(SlotA, "a")
-	single.SetText(SlotB, "b")
-	single.SetText(SlotC, "c")
-	single.SetText(SlotD, "d")
-	if got := nextStep(*single); !strings.Contains(got, "statement is") {
-		t.Errorf("singular nextStep = %q", got)
-	}
-
-	complete := resolved()
-	if got := nextStep(*complete); !strings.Contains(got, "All five statements are set") {
-		t.Errorf("complete nextStep = %q", got)
-	}
-
-	complete.AddAssumption(ArrowBD, "because")
-	if got := nextStep(*complete); !strings.Contains(got, "1 assumption surfaced") {
-		t.Errorf("assumption nextStep = %q", got)
-	}
-}
-
 func TestPlural(t *testing.T) {
 	cases := []struct {
 		n         int
@@ -115,11 +88,6 @@ func TestViewShowsWireframeContent(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("cloud view missing %q", want)
 		}
-	}
-
-	// The footer explains the highlighted slot.
-	if !strings.Contains(view, "outcome both sides want to reach") {
-		t.Errorf("cloud footer missing the objective hint:\n%s", view)
 	}
 }
 
@@ -225,18 +193,58 @@ func TestLeftAndRightSwitchPanes(t *testing.T) {
 	}
 }
 
-func TestContextIsWrappedNotTruncated(t *testing.T) {
+func TestSelectedArrowCarriesItsReading(t *testing.T) {
 	a := newSizedApp(t, 80, 24)
 	a.Update(keyMsg("enter"))
 	a.Update(keyMsg("3"))
-	// The footer describes the arrow under the cursor; walk to B-D.
+	// The heading for B-D is the third row.
 	a.Update(keyMsg("down"))
 	a.Update(keyMsg("down"))
 
-	// The reading for B-D is longer than one narrow footer row.
+	// Wide pane so the sentence is not clipped by the column.
+	plain := ansi.Strip(a.renderAssumptions(200, 20))
+	lines := strings.Split(strings.TrimRight(plain, "\n"), "\n")
+
+	// No assumptions exist yet, so the pane is one row per arrow.
+	if len(lines) != len(Arrows()) {
+		t.Fatalf("pane is %d rows, want %d (one per arrow):\n%s", len(lines), len(Arrows()), plain)
+	}
+
 	reading := strings.Join(strings.Fields(ArrowBD.Reading(&a.cv.cloud)), " ")
-	plain := strings.Join(strings.Fields(ansi.Strip(a.View().Content)), " ")
-	if !strings.Contains(plain, reading) {
-		t.Errorf("the necessity reading was cut off:\n%s", plain)
+	if got := strings.Join(strings.Fields(lines[2]), " "); !strings.Contains(got, reading) {
+		t.Errorf("the selected arrow's row does not carry its reading:\n%q", got)
+	}
+}
+
+func TestSelectedAssumptionCarriesItsEvidence(t *testing.T) {
+	a := newSizedApp(t, 80, 24)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("3"))
+
+	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
+	a.cv.cloud.AssumptionByID(id).Evidence = "three regressions shipped last quarter"
+	a.selectAssumption(id)
+
+	plain := strings.Join(strings.Fields(ansi.Strip(a.renderAssumptions(80, 20))), " ")
+	if !strings.Contains(plain, "three regressions shipped last quarter") {
+		t.Errorf("evidence is not shown with its assumption:\n%s", plain)
+	}
+}
+
+func TestFooterHoldsOnlyKeys(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("3"))
+
+	lines := strings.Split(ansi.Strip(a.View().Content), "\n")
+	footer := lines[len(lines)-1]
+	if !strings.Contains(footer, "move") || !strings.Contains(footer, "verdict") {
+		t.Errorf("last row is not the key hints: %q", footer)
+	}
+	if strings.Contains(footer, "In order to") {
+		t.Errorf("the footer carrying prose again: %q", footer)
+	}
+	if above := lines[len(lines)-2]; !strings.HasPrefix(above, "───") {
+		t.Errorf("the footer is not separated from the pane: %q", above)
 	}
 }

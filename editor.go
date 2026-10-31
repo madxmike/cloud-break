@@ -38,7 +38,7 @@ type editKind int
 const (
 	editCloudTitle editKind = iota
 	editStatement
-	editParties
+	editParty
 	editAssumptionText
 	editAssumptionEvidence
 	editInjectionText
@@ -185,4 +185,86 @@ func (e *editor) View(s Styles, bar help.Model, width, height int) string {
 
 	box := s.EditorBox.Width(w + boxFrame).Render(strings.Join(rows, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// inlineEditor edits a statement in place, inside the card that already shows
+// it, growing as the text wraps. The pane, its tabs and the other statements
+// stay on screen, which the modal could not do.
+type inlineEditor struct {
+	open   bool
+	target editTarget
+	keys   editorKeys
+	ta     textarea.Model
+}
+
+func newInlineEditor(isDark bool) inlineEditor {
+	ta := textarea.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 1000
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = 4
+	ta.SetStyles(editorTextareaStyles(isDark))
+	return inlineEditor{ta: ta, keys: newEditorKeys(false)}
+}
+
+// Open starts editing with the cursor at the end of the existing text, which is
+// what extending a statement wants.
+func (e *inlineEditor) Open(target editTarget, value string, width int) tea.Cmd {
+	return e.openField(target, value, "", width)
+}
+
+// OpenPlaceholder starts an empty field showing the current value beside it as a
+// placeholder: typing replaces the old text, and committing without typing can
+// leave it alone.
+func (e *inlineEditor) OpenPlaceholder(target editTarget, placeholder string, width int) tea.Cmd {
+	return e.openField(target, "", placeholder, width)
+}
+
+func (e *inlineEditor) openField(target editTarget, value, placeholder string, width int) tea.Cmd {
+	e.open = true
+	e.target = target
+	e.ta.SetWidth(max(8, width))
+	e.ta.Placeholder = placeholder
+	e.ta.SetValue(value)
+	e.ta.CursorEnd()
+	return e.ta.Focus()
+}
+
+// Value is the text in the field.
+func (e *inlineEditor) Value() string { return e.ta.Value() }
+
+// Resize keeps the field in step with the card as the window changes.
+func (e *inlineEditor) Resize(width int) {
+	if e.open {
+		e.ta.SetWidth(max(8, width))
+	}
+}
+
+// SetDark repaints the field for the terminal background.
+func (e *inlineEditor) SetDark(isDark bool) { e.ta.SetStyles(editorTextareaStyles(isDark)) }
+
+// View is the field as it sits inside the card.
+func (e *inlineEditor) View() string { return e.ta.View() }
+
+func (e *inlineEditor) bindings() []key.Binding {
+	return []key.Binding{e.keys.Save, e.keys.Cancel}
+}
+
+// Update handles one key press. Enter commits and escape abandons; everything
+// else belongs to the textarea.
+func (e *inlineEditor) Update(msg tea.KeyPressMsg) (editResult, tea.Cmd) {
+	switch {
+	case key.Matches(msg, e.keys.Cancel):
+		e.open = false
+		return editCancelled, nil
+	case key.Matches(msg, e.keys.Save):
+		e.open = false
+		return editSaved, nil
+	}
+
+	var cmd tea.Cmd
+	e.ta, cmd = e.ta.Update(msg)
+	return editPending, cmd
 }

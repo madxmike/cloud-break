@@ -384,7 +384,7 @@ func TestSlotInfosCoverEverySlot(t *testing.T) {
 		t.Errorf("SlotInfos order = %v", infos)
 	}
 	for _, info := range infos {
-		if info.Name == "" || info.Prompt == "" || info.Hint == "" {
+		if info.Name == "" || info.Prompt == "" {
 			t.Errorf("slot %s has an empty field: %+v", info.Slot, info)
 		}
 		if got := SlotOf(info.Slot); got.Name != info.Name {

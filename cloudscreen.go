@@ -54,6 +54,7 @@ type cloudScreen struct {
 	cloud            Cloud
 	pane             pane
 	cursor           int // statement slot
+	paneWidth        int // column the pane was last drawn in
 	assumptionCursor int // row in the assumptions pane
 	injectionCursor  int // row in the injections pane
 }
@@ -75,6 +76,7 @@ func (a *App) renderCloud() string {
 		if figure := a.renderDiagram(figureWidth, height); figure != "" {
 			const gutter = 2
 			paneWidth := a.width - figureWidth - gutter
+			a.cv.paneWidth = paneWidth
 			left := fitLines(figure, height, figureWidth)
 			right := fitLines(a.renderPane(paneWidth, height), height, paneWidth)
 			gap := strings.Repeat(" ", gutter)
@@ -88,6 +90,7 @@ func (a *App) renderCloud() string {
 			return strings.Join(joined, "\n")
 		}
 	}
+	a.cv.paneWidth = a.width
 	return a.renderPane(a.width, height)
 }
 
@@ -136,6 +139,12 @@ type assumptionRow struct {
 func (a *App) assumptionRows() []assumptionRow {
 	var rows []assumptionRow
 	for _, arrow := range Arrows() {
+		// An arrow is worth a row once it can be read. Until both of its
+		// statements exist there is nothing to challenge and nothing to say, so
+		// it would only be a bare badge.
+		if a.arrowReading(arrow) == "" && a.cv.cloud.CountFor(arrow) == 0 {
+			continue
+		}
 		rows = append(rows, assumptionRow{arrow: arrow})
 		for _, as := range a.cv.cloud.AssumptionsFor(arrow) {
 			rows = append(rows, assumptionRow{arrow: arrow, id: as.ID})
@@ -148,7 +157,9 @@ func (a *App) assumptionRows() []assumptionRow {
 func (a *App) renderAssumptions(width, height int) string {
 	rows := a.assumptionRows()
 	if len(rows) == 0 {
-		return ""
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
+			a.styles.Dim.Width(min(width, 46)).Align(lipgloss.Center).
+				Render("No arrows yet.\n\nAn arrow appears once both of its statements are written."))
 	}
 
 	selected := max(0, min(a.cv.assumptionCursor, len(rows)-1))
@@ -156,7 +167,7 @@ func (a *App) renderAssumptions(width, height int) string {
 	heights := make([]int, len(rows))
 	for i, row := range rows {
 		lines[i] = a.assumptionLine(row, i == selected, width)
-		heights[i] = 1
+		heights[i] = lipgloss.Height(lines[i])
 	}
 
 	start, end := visibleRange(heights, selected, height)
@@ -182,28 +193,60 @@ func (a *App) arrowHeading(arrow Arrow, selected bool, width int) string {
 		badge += a.styles.Faint.Render(fmt.Sprintf(" %d", count))
 	}
 
-	// The full "in order to ..." sentence is in the footer. Here the heading
-	// carries the statement the arrow rests on, which keeps every row distinct
-	// even when the readings share a long prefix.
-	room := max(8, width-lipgloss.Width(badge)-4)
-	line := " " + badge + "  " + a.styles.Dim.Render(truncate(a.arrowSubject(arrow), room))
-	line = fitLine(line, width)
+	// The row reads the sentence the arrow stands for: "A-B  In order to ...".
+	// Selecting it swaps that sentence in for the short subject, on the same
+	// row, so the list never grows a second line.
+	subject := a.arrowSubject(arrow)
+	style := a.styles.Dim
+	if selected {
+		style = a.styles.Strong
+		if reading := a.arrowReading(arrow); reading != "" {
+			subject = reading
+		}
+	}
+
+	line := " " + badge
+	if subject != "" {
+		room := max(8, width-lipgloss.Width(badge)-4)
+		line = fitLine(line+"  "+style.Render(truncate(subject, room)), width)
+	}
+
 	if selected {
 		return a.styles.RowSelected.Width(width).Render(line)
 	}
 	return line
 }
 
+// indented wraps text to the pane and prefixes every line, so a sentence that
+// needs two rows stays aligned under the row it belongs to.
+func (a *App) indented(text, indent string, width int) string {
+	lines := wrapText(text, max(8, width-lipgloss.Width(indent)), 2)
+	for i := range lines {
+		lines[i] = indent + a.styles.CardHint.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
 // arrowSubject names the condition an arrow rests on.
 func (a *App) arrowSubject(arrow Arrow) string {
 	if arrow == ArrowDD2 {
+		if a.cv.cloud.Text(SlotD) == "" || a.cv.cloud.Text(SlotD2) == "" {
+			return ""
+		}
 		return "the two wants cannot both happen"
 	}
 	from, _ := arrow.Ends()
-	if text := a.cv.cloud.Text(from); text != "" {
-		return text
+	return a.cv.cloud.Text(from)
+}
+
+// arrowReading is the necessity sentence, or "" while it could only be made of
+// placeholders.
+func (a *App) arrowReading(arrow Arrow) string {
+	from, to := arrow.Ends()
+	if a.cv.cloud.Text(from) == "" || a.cv.cloud.Text(to) == "" {
+		return ""
 	}
-	return "not yet stated"
+	return arrow.Reading(&a.cv.cloud)
 }
 
 // assumptionText is one assumption: verdict glyph, the "because", and a mark
@@ -225,7 +268,15 @@ func (a *App) assumptionText(as Assumption, selected bool, width int) string {
 	if selected {
 		text = a.styles.Strong
 	}
-	return fitLine(marker+glyph+" "+text.Render(truncate(as.Text, room))+evidence, width)
+	line := fitLine(marker+glyph+" "+text.Render(truncate(as.Text, room))+evidence, width)
+
+	if !selected {
+		return line
+	}
+	if body := strings.TrimSpace(as.Evidence); body != "" {
+		line += "\n" + a.indented(body, "     ", width)
+	}
+	return line
 }
 
 // renderInjections lists the breakthroughs and what each one breaks.
@@ -349,22 +400,14 @@ func (a *App) renderProcess(width, height int) string {
 	}
 
 	if issues := c.Validate(); len(issues) > 0 {
-		lines = append(lines, "", " "+a.styles.HelpSection.Render("Issues"))
+		lines = append(lines, "",
+			" "+a.styles.HelpSection.Render(fmt.Sprintf("Issues (%d)", len(issues))))
 		for _, issue := range issues {
 			lines = append(lines, " "+a.severityMark(issue.Severity)+" "+
 				a.styles.Dim.Render(truncate(issue.Message, max(8, width-4))))
 		}
 	}
 
-	lines = append(lines, "")
-	switch {
-	case c.Verified:
-		lines = append(lines, " "+a.styles.Success.Render("Verified: this cloud is marked as evaporated."))
-	case len(c.BrokenAssumptions()) > 0:
-		lines = append(lines, " "+a.styles.Faint.Render("An assumption is broken and an injection answers it. Not yet verified."))
-	default:
-		lines = append(lines, " "+a.styles.Faint.Render("Nothing is broken yet, so there is nothing to verify."))
-	}
 	return strings.Join(lines, "\n")
 }
 
@@ -430,7 +473,43 @@ func (a *App) severityMark(severity Severity) string {
 }
 
 // renderStatements draws the five statement cards, scrolled to the cursor.
+// renderStatements lays the sides row over the five cards.
 func (a *App) renderStatements(width, height int) string {
+	return a.sidesRow(width) + "\n\n" + a.cardColumn(width, max(3, height-2))
+}
+
+// partyFieldWidth is the room a side name gets while it is being typed.
+const partyFieldWidth = 20
+
+// sidesRow names the two parties. s edits each name in place, one field at a
+// time, so the pane and the cards stay where they are.
+func (a *App) sidesRow(width int) string {
+	label := a.styles.CardLabel.Render("sides")
+	arrow := a.styles.Faint.Render("  ⇄  ")
+
+	name := func(index int, party string) string {
+		if a.partyEditing(index) {
+			a.inline.Resize(partyFieldWidth)
+			return a.inline.View()
+		}
+		return a.styles.CardValue.Render(truncate(party, partyFieldWidth))
+	}
+
+	first := a.cv.cloud.Party(1)
+	if a.party.index == 1 {
+		first = a.party.first
+	}
+	row := "  " + label + "  " + name(0, first) + arrow + name(1, a.cv.cloud.Party(2))
+	return fitLine(row, width)
+}
+
+// partyEditing reports whether one of the two name fields is being typed in.
+func (a *App) partyEditing(index int) bool {
+	return a.inline.open && a.inline.target.kind == editParty && a.party.index == index
+}
+
+// cardColumn draws the five statement cards, scrolled to the cursor.
+func (a *App) cardColumn(width, height int) string {
 	infos := SlotInfos()
 	cards := make([]string, len(infos))
 	heights := make([]int, len(infos))
@@ -447,37 +526,55 @@ func (a *App) renderStatements(width, height int) string {
 
 // slotCard renders one statement. An empty slot shows the question instead of
 // nothing, so the shape of the cloud teaches while it is being filled in.
+// cardWidth is the outer width of a statement card.
+func cardWidth(paneWidth int) int { return max(28, min(paneWidth, 104)) }
+
+// slotCard draws one statement as a card whose label sits in the top border,
+// the same way the nodes of the figure are drawn. An empty slot shows the whole
+// prompt, guidance included; a filled one shows only what was written.
 func (a *App) slotCard(info SlotInfo, selected bool, width int) string {
-	width = max(24, min(width, 104))
-	inner := width - 4 // two border columns, two padding columns
+	width = cardWidth(width)
+	inner := width - 4 // a border and a padding column on each side
+
+	borderStyle := a.styles.Faint
+	labelStyle := a.styles.CardLabel
+	marker := "  "
+	if selected {
+		borderStyle = a.styles.Accent
+		labelStyle = a.styles.CardLabelFocused
+		marker = "▸ "
+	}
 
 	label := fmt.Sprintf("%s · %s", info.Slot, info.Name)
 	if info.Side != 0 {
 		label = fmt.Sprintf("%s · %s (%s)", info.Slot, info.Name, a.cv.cloud.Party(info.Side))
 	}
-	marker := "  "
-	if selected {
-		marker = "▸ "
+	label = truncate(marker+label, max(8, inner-6))
+
+	pad := max(0, width-5-lipgloss.Width(label))
+	lines := []string{
+		borderStyle.Render("╭─ ") + labelStyle.Render(label) +
+			borderStyle.Render(" "+strings.Repeat("─", pad)+"╮"),
 	}
 
-	labelStyle := a.styles.CardLabel
-	if selected {
-		labelStyle = a.styles.CardLabelFocused
+	var body string
+	switch {
+	case a.inline.open && a.inline.target.kind == editStatement && a.inline.target.slot == info.Slot:
+		// The field is always the width of the card it sits in, whatever sized
+		// it when the edit began.
+		a.inline.Resize(inner)
+		body = a.inline.View()
+	case a.cv.cloud.Text(info.Slot) != "":
+		body = a.styles.CardValue.Width(inner).Render(a.cv.cloud.Text(info.Slot))
+	default:
+		body = a.styles.CardPrompt.Width(inner).Render(info.Prompt)
 	}
-	rows := []string{labelStyle.Render(marker + truncate(label, inner-2))}
 
-	if value := a.cv.cloud.Text(info.Slot); value != "" {
-		rows = append(rows, a.styles.CardValue.Width(inner).Render(value))
-	} else {
-		rows = append(rows, a.styles.CardPrompt.Width(inner).Render(info.Prompt))
+	for row := range strings.SplitSeq(body, "\n") {
+		lines = append(lines, borderStyle.Render("│")+" "+row+" "+borderStyle.Render("│"))
 	}
-
-	style := a.styles.Card
-	if selected {
-		style = a.styles.CardFocused
-	}
-	// Width() is the total block width, so the padding and border sit inside it.
-	return style.Width(width).Render(strings.Join(rows, "\n"))
+	lines = append(lines, borderStyle.Render("╰"+strings.Repeat("─", width-2)+"╯"))
+	return strings.Join(lines, "\n")
 }
 
 // The figure is drawn on a rune grid in fixed rows: the objective, a stub and

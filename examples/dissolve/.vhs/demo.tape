@@ -14,7 +14,7 @@ Set Width 1500
 Set Height 950
 Set Padding 20
 Set TypingSpeed 15ms
-Set PlaybackSpeed 1.2
+Set PlaybackSpeed 0.8
 Set CursorBlink false
 
 # Build the CLI and seed the library without showing any of it.

@@ -285,16 +285,28 @@ func openAssumptions(t *testing.T) *App {
 	return a
 }
 
-func TestAssumptionRowsAlwaysShowEveryArrow(t *testing.T) {
-	a := openAssumptions(t)
+func TestArrowsAppearOnceTheyCanBeRead(t *testing.T) {
+	a := openAssumptions(t) // a complete cloud: every arrow can be read
 	rows := a.assumptionRows()
 	if len(rows) != len(Arrows()) {
-		t.Fatalf("rows = %d, want one heading per arrow (%d)", len(rows), len(Arrows()))
+		t.Fatalf("rows = %d, want one per arrow (%d)", len(rows), len(Arrows()))
 	}
 	for i, arrow := range Arrows() {
 		if rows[i].arrow != arrow || rows[i].id != "" {
 			t.Errorf("row %d = %+v, want heading %s", i, rows[i], arrow)
 		}
+	}
+
+	// With nothing written, no arrow can be read, and the pane says so instead
+	// of showing five bare badges.
+	empty := New("empty")
+	a.cv.cloud = *empty
+	if rows := a.assumptionRows(); len(rows) != 0 {
+		t.Errorf("empty cloud has %d arrow rows, want none", len(rows))
+	}
+	pane := ansi.Strip(a.renderAssumptions(80, 16))
+	if !strings.Contains(pane, "No arrows yet") {
+		t.Errorf("empty pane says nothing:\n%s", pane)
 	}
 }
 
@@ -312,10 +324,18 @@ func TestArrowSubjectsAreDistinct(t *testing.T) {
 		seen[subject] = arrow
 	}
 
+	// With nothing written, an arrow names nothing: the heading is just the
+	// arrow, and no sentence is invented from placeholders.
 	empty := New("empty")
 	a.cv.cloud = *empty
-	if got := a.arrowSubject(ArrowBD); got != "not yet stated" {
-		t.Errorf("empty subject = %q", got)
+	if got := a.arrowSubject(ArrowBD); got != "" {
+		t.Errorf("empty subject = %q, want none", got)
+	}
+	if got := a.arrowReading(ArrowBD); got != "" {
+		t.Errorf("empty reading = %q, want none", got)
+	}
+	if view := a.renderAssumptions(80, 20); strings.Contains(view, "unstated") {
+		t.Errorf("placeholder leaked into the pane:\n%s", view)
 	}
 }
 
@@ -667,5 +687,116 @@ func TestProcessShowsConcreteEvidence(t *testing.T) {
 		if !strings.Contains(plain, want) {
 			t.Errorf("process pane missing %q:\n%s", want, plain)
 		}
+	}
+}
+
+func TestInlineEditCommitsInPlace(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("enter")) // edit slot A where it sits
+
+	if !a.inline.open || a.ed.open {
+		t.Fatalf("enter opened the wrong editor: inline=%v modal=%v", a.inline.open, a.ed.open)
+	}
+	if !strings.Contains(ansi.Strip(a.View().Content), "╭─ ▸ A · Objective") {
+		t.Error("the card lost its label while editing")
+	}
+
+	typeString(a, " and never freeze the scope")
+	a.Update(keyMsg("enter"))
+
+	if a.inline.open {
+		t.Error("the field stayed open after commit")
+	}
+	if got := a.cv.cloud.Text(SlotA); !strings.HasSuffix(got, "never freeze the scope") {
+		t.Errorf("statement = %q", got)
+	}
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.HasSuffix(saved.Text(SlotA), "never freeze the scope") {
+		t.Error("the edit was not persisted")
+	}
+}
+
+func TestInlineEditEscapeLeavesTheStatementAlone(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	before := a.cv.cloud.Text(SlotA)
+
+	a.Update(keyMsg("enter"))
+	typeString(a, " scribbled")
+	a.Update(keyMsg("esc"))
+
+	if got := a.cv.cloud.Text(SlotA); got != before {
+		t.Errorf("statement changed to %q, want %q", got, before)
+	}
+}
+
+func TestSidesAreTwoInlineFields(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	a.Update(keyMsg("s"))
+
+	if a.cv.pane != paneStatements || !a.inline.open {
+		t.Fatalf("s went to pane %v, inline=%v", a.cv.pane, a.inline.open)
+	}
+	typeString(a, "Engineering")
+	a.Update(keyMsg("enter")) // straight on to the second name
+	typeString(a, "Sales")
+	a.Update(keyMsg("enter"))
+
+	if got := a.cv.cloud.Parties; got != [2]string{"Engineering", "Sales"} {
+		t.Errorf("parties = %v", got)
+	}
+	saved, err := a.store.Load(a.cv.cloud.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if saved.Parties != [2]string{"Engineering", "Sales"} {
+		t.Errorf("parties not persisted: %v", saved.Parties)
+	}
+}
+
+func TestSidesEditCanBeAbandoned(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	before := a.cv.cloud.Parties
+
+	a.Update(keyMsg("s"))
+	typeString(a, "Half")
+	a.Update(keyMsg("esc"))
+
+	if got := a.cv.cloud.Parties; got != before {
+		t.Errorf("parties = %v, want %v", got, before)
+	}
+}
+
+func TestEmptySlotAsksItsQuestion(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+	a.cv.cloud.SetText(SlotB, "")
+
+	card := ansi.Strip(a.slotCard(SlotOf(SlotB), false, 90))
+	if !strings.Contains(card, "What does the first side need to reach the objective?") {
+		t.Errorf("empty card does not ask its question:\n%s", card)
+	}
+	// One question, nothing trailing after it.
+	if strings.Count(card, "?") != 1 {
+		t.Errorf("empty card carries more than the question:\n%s", card)
+	}
+}
+
+func TestFilledSlotShowsOnlyWhatWasWritten(t *testing.T) {
+	a := newSizedApp(t, 100, 30)
+	a.Update(keyMsg("enter"))
+
+	card := ansi.Strip(a.slotCard(SlotOf(SlotA), true, 90))
+	if !strings.Contains(card, "ship the release on time") {
+		t.Errorf("filled card lost its statement:\n%s", card)
+	}
+	if strings.Contains(card, "?") {
+		t.Errorf("filled card still asks a question:\n%s", card)
 	}
 }

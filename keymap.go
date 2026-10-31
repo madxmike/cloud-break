@@ -119,6 +119,9 @@ func (a *App) resizeHelpBar() {
 func (a *App) footerBindings() []key.Binding {
 	k := a.keys
 
+	if a.inline.open {
+		return a.inline.bindings()
+	}
 	if a.ed.open {
 		return a.ed.bindings()
 	}

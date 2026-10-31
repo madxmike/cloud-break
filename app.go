@@ -77,6 +77,8 @@ type App struct {
 
 	keys    keyMap
 	helpBar help.Model
+	inline  inlineEditor
+	party   partyEdit
 
 	help    bool
 	flash   flash
@@ -99,6 +101,7 @@ func NewApp(store *Store) *App {
 	a.initHelpBar()
 	a.lib.loading = true
 	a.ed = newEditor(true)
+	a.inline = newInlineEditor(true)
 	return a
 }
 
@@ -119,6 +122,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = msg.Width, msg.Height
 		a.ed.Resize(a.width)
+		a.inline.Resize(cardWidth(a.cv.paneWidth) - 4)
 		a.resizeHelpBar()
 		return a, nil
 
@@ -148,6 +152,7 @@ func (a *App) setTheme(isDark bool) {
 	a.isDark = isDark
 	a.styles = NewStyles(isDark)
 	a.ed.SetDark(isDark)
+	a.inline.SetDark(isDark)
 	a.initHelpBar()
 }
 
@@ -170,6 +175,23 @@ func (a *App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return a, pending.onYes(a)
 		}
 		return a, nil
+	}
+
+	if a.inline.open {
+		result, cmd := a.inline.Update(msg)
+		target, value := a.inline.target, a.inline.Value()
+		switch result {
+		case editSaved:
+			a.inline.open = false
+			if target.kind == editParty {
+				return a, tea.Batch(cmd, a.nextPartyEdit(value))
+			}
+			return a, tea.Batch(cmd, a.applyEdit(target, value))
+		case editCancelled:
+			a.inline.open = false
+			a.party = partyEdit{}
+		}
+		return a, cmd
 	}
 
 	if a.ed.open {
@@ -280,9 +302,7 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			"A short name for the conflict.", a.cv.cloud.Title, a.width, false)
 
 	case key.Matches(msg, a.keys.Sides):
-		value := a.cv.cloud.Party(1) + "\n" + a.cv.cloud.Party(2)
-		return a, a.ed.Open(editTarget{kind: editParties}, "Name the two sides",
-			"One name per line: your side, then theirs.", value, a.width, true)
+		return a, a.startParties()
 
 	case key.Matches(msg, a.keys.Help):
 		a.help = true
@@ -307,16 +327,62 @@ func (a *App) moveCursor(delta int) {
 // activate handles enter: edit the highlighted statement or assumption.
 func (a *App) activate() tea.Cmd {
 	switch a.cv.pane {
+	case paneStatements:
+		return a.startInline()
 	case paneAssumptions:
 		return a.editAssumption()
 	case paneInjections:
 		return a.editInjection()
 	}
-	if a.cv.pane != paneStatements {
-		a.cv.pane = paneStatements
+	a.cv.pane = paneStatements
+	return nil
+}
+
+// partyEdit tracks the two-step edit of the side names.
+type partyEdit struct {
+	index int    // 0 = first side, 1 = second side
+	first string // the first name, held while the second is typed
+	orig  [2]string
+}
+
+// startParties edits the first side name inline, then the second.
+func (a *App) startParties() tea.Cmd {
+	a.cv.pane = paneStatements
+	a.party = partyEdit{orig: [2]string{a.cv.cloud.Party(1), a.cv.cloud.Party(2)}}
+	return a.inline.OpenPlaceholder(editTarget{kind: editParty}, a.party.orig[0], partyFieldWidth)
+}
+
+// nextPartyEdit moves from the first name to the second, then saves both.
+func (a *App) nextPartyEdit(value string) tea.Cmd {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = a.party.orig[a.party.index]
+	}
+
+	if a.party.index == 0 {
+		a.party.first = value
+		a.party.index = 1
+		return a.inline.OpenPlaceholder(editTarget{kind: editParty}, a.party.orig[1], partyFieldWidth)
+	}
+
+	a.cv.cloud.SetParties(a.party.first, value)
+	a.party = partyEdit{}
+	return a.persist()
+}
+
+// startInline edits the highlighted statement in its own card.
+func (a *App) startInline() tea.Cmd {
+	infos := SlotInfos()
+	if a.cv.cursor < 0 || a.cv.cursor >= len(infos) {
 		return nil
 	}
-	return a.editSlot()
+	paneWidth := a.cv.paneWidth
+	if paneWidth <= 0 {
+		paneWidth = a.width
+	}
+	info := infos[a.cv.cursor]
+	return a.inline.Open(editTarget{kind: editStatement, slot: info.Slot},
+		a.cv.cloud.Text(info.Slot), cardWidth(paneWidth)-4)
 }
 
 // editAssumption opens the selected assumption's text, or starts a new one when
@@ -481,7 +547,10 @@ func (a *App) toggleVerified() tea.Cmd {
 
 // arrowHint is the question the arrow is asking.
 func (a *App) arrowHint(arrow Arrow) string {
-	return "What has to be true for this arrow to hold? " + arrow.Reading(&a.cv.cloud)
+	if reading := a.arrowReading(arrow); reading != "" {
+		return "What has to be true for this arrow to hold? " + reading
+	}
+	return "What has to be true for this arrow to hold?"
 }
 
 // cycleVerdict moves the selected assumption through the four judgements.
@@ -570,22 +639,6 @@ func (a *App) selectedAssumptionRow() (assumptionRow, bool) {
 	return rows[index], true
 }
 
-// editSlot opens the editor on the highlighted statement.
-func (a *App) editSlot() tea.Cmd {
-	infos := SlotInfos()
-	if a.cv.cursor < 0 || a.cv.cursor >= len(infos) {
-		return nil
-	}
-	info := infos[a.cv.cursor]
-
-	title := fmt.Sprintf("%s · %s", info.Slot, info.Name)
-	if info.Side != 0 {
-		title = fmt.Sprintf("%s · %s (%s)", info.Slot, info.Name, a.cv.cloud.Party(info.Side))
-	}
-	return a.ed.Open(editTarget{kind: editStatement, slot: info.Slot},
-		title, info.Hint, a.cv.cloud.Text(info.Slot), a.width, false)
-}
-
 // applyEdit writes a saved value back into the model and persists it.
 func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 	switch target.kind {
@@ -605,18 +658,6 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 
 	case editStatement:
 		a.cv.cloud.SetText(target.slot, value)
-		return a.persist()
-
-	case editParties:
-		lines := strings.Split(value, "\n")
-		first, second := "", ""
-		if len(lines) > 0 {
-			first = lines[0]
-		}
-		if len(lines) > 1 {
-			second = lines[1]
-		}
-		a.cv.cloud.SetParties(first, second)
 		return a.persist()
 
 	case editAssumptionText:
@@ -729,15 +770,6 @@ func (a *App) View() tea.View {
 	return view
 }
 
-// contextLines is how many rows the context hint may use. The assumptions pane
-// shows the whole necessity reading, which needs two rows on a narrow window.
-func (a *App) contextLines() int {
-	if a.screen == screenCloud && a.cv.pane == paneAssumptions {
-		return 2
-	}
-	return 1
-}
-
 // chromeHeight is every row that is not body: the header, its rules, the pane
 // tabs, the context hint and the key hints. It lives in one place so the body
 // always fills exactly the space that is left.
@@ -746,9 +778,9 @@ func (a *App) chromeHeight() int {
 	case a.help:
 		return 3 // header, rule, closing hint
 	case a.screen == screenLibrary:
-		return 5 // header, rule, rule, context, keys
+		return 4 // header, rule, rule, keys
 	default:
-		return 6 + a.contextLines() // header, rule, tabs, spacer, rule, context, keys
+		return 6 // header, rule, tabs, spacer, rule, keys
 	}
 }
 
@@ -774,7 +806,7 @@ func (a *App) compose() string {
 
 	lines = append(lines, fitLines(a.renderBody(), a.bodyHeight(), a.width)...)
 	lines = append(lines, rule)
-	lines = append(lines, a.footerLines()...)
+	lines = append(lines, a.keysLine())
 	return strings.Join(lines, "\n")
 }
 
@@ -823,19 +855,6 @@ func (a *App) tabStrip(withNames bool) string {
 	return " " + strings.Join(chips, "")
 }
 
-// footerLines is the context hint, wrapped rather than clipped, and the keys.
-func (a *App) footerLines() []string {
-	rows := wrapText(a.contextLine(), max(10, a.width-2), a.contextLines())
-	out := make([]string, 0, a.contextLines()+1)
-	for _, row := range rows {
-		out = append(out, fitLine(" "+a.styles.Subtle.Render(row), a.width))
-	}
-	for len(out) < a.contextLines() {
-		out = append(out, "")
-	}
-	return append(out, a.keysLine())
-}
-
 func (a *App) keysLine() string {
 	if a.confirm != nil {
 		return fitLine(" "+a.styles.Warning.Render(a.confirm.question)+"  "+
@@ -872,74 +891,6 @@ func (a *App) renderHeader() string {
 		right = a.styles.Faint.Render(plural(len(a.lib.clouds), "cloud", "clouds"))
 	}
 	return spread(left, right, a.width)
-}
-
-// contextLine explains the current selection: the question a slot is asking,
-// or what the highlighted cloud still needs.
-func (a *App) contextLine() string {
-	if a.screen == screenCloud && a.cv.pane == paneCloud {
-		return "Everything below a node must hold. The × is the conflict."
-	}
-	if a.screen == screenCloud && a.cv.pane == paneInjections {
-		if injection, ok := a.selectedInjection(); ok {
-			if broken := a.cv.cloud.BrokenBy(&injection); len(broken) > 0 {
-				return fmt.Sprintf("Breaks %s: %s", broken[0].Arrow, broken[0].Text)
-			}
-			return "This injection breaks no assumption, so the conflict stands."
-		}
-		return ""
-	}
-	if a.screen == screenCloud && a.cv.pane == paneProcess {
-		if issue := a.cv.cloud.Validate(); len(issue) > 0 {
-			return plural(len(issue), "issue remains.", "issues remain.")
-		}
-		return "No open issues."
-	}
-	if a.screen == screenCloud && a.cv.pane == paneAssumptions {
-		row, ok := a.selectedAssumptionRow()
-		if !ok {
-			return ""
-		}
-		if row.id != "" {
-			if as := a.cv.cloud.AssumptionByID(row.id); as != nil {
-				if evidence := strings.TrimSpace(as.Evidence); evidence != "" {
-					return "Evidence: " + evidence
-				}
-			}
-		}
-		return fmt.Sprintf("%s · %s", row.arrow, row.arrow.Reading(&a.cv.cloud))
-	}
-	if a.screen == screenCloud {
-		infos := SlotInfos()
-		if a.cv.cursor >= 0 && a.cv.cursor < len(infos) {
-			info := infos[a.cv.cursor]
-			if a.cv.cloud.Text(info.Slot) == "" {
-				return info.Prompt
-			}
-			return info.Hint
-		}
-		return ""
-	}
-	if c, ok := a.lib.selected(); ok {
-		return nextStep(c)
-	}
-	return ""
-}
-
-// nextStep describes what a cloud needs next, for the library footer.
-func nextStep(c Cloud) string {
-	if missing := c.Missing(); len(missing) > 0 {
-		names := make([]string, len(missing))
-		for i, s := range missing {
-			names[i] = string(s)
-		}
-		return fmt.Sprintf("%s still empty: %s.",
-			plural(len(missing), "statement is", "statements are"), strings.Join(names, ", "))
-	}
-	if len(c.Assumptions) == 0 {
-		return "All five statements are set. No assumptions surfaced yet."
-	}
-	return plural(len(c.Assumptions), "assumption surfaced.", "assumptions surfaced.")
 }
 
 func (a *App) renderHelp() string {
