@@ -43,6 +43,12 @@ Challenging the assumptions of a complete cloud until one breaks:
 Both recordings are generated from the tapes in [`examples/`](examples), which
 also documents how to re-record them.
 
+[`examples/library/`](examples/library) holds ten more clouds to browse, each in a
+different state: five everyday conflicts, and five classic hard problems —
+consistency against availability, cache invalidation, retries without
+duplicates, schema changes without downtime, and rewriting against refactoring.
+`cloud-break --demo` opens them in a throwaway library.
+
 ## Installation
 
 ```sh
@@ -61,6 +67,7 @@ go build -o cloud-break .
 
 ```sh
 cloud-break              # opens the library
+cloud-break --demo       # a temporary library holding the example clouds
 cloud-break -dir ./clouds
 cloud-break -version
 ```
