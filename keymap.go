@@ -66,7 +66,7 @@ func newKeyMap() keyMap {
 		Add:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 		Verdict:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "verdict")),
 		Evidence: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "evidence")),
-		Inject:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "answer")),
+		Inject:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "instead")),
 		Why:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "why")),
 		Verify:   key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "verify")),
 		Title:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "title")),

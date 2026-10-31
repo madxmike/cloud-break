@@ -95,9 +95,12 @@ Nothing is ever marked dissolved on your behalf.
 | Library | `↑/k` `↓/j` move · `enter` open · `n` new · `d` delete · `q` quit |
 | Statements | `↑/k` `↓/j` move · `enter` edit · `t` title · `s` name the sides |
 | Cloud figure | `2` — the diagram has its own pane on narrow terminals |
-| Assumptions | `↑/k` `↓/j` move · `a` add · `enter` edit · `v` verdict · `e` evidence · `i` inject · `r` why it works · `x` delete |
+| Assumptions | `↑/k` `↓/j` move · `a` add · `enter` edit · `v` verdict · `e` evidence · `i` instead · `r` why it works · `x` delete |
 | Process | `V` verify — works from any pane |
 | Anywhere | `1`–`4` jump to pane · `←`/`→` `tab` `shift+tab` cycle · `?` help · `esc/q` back · `^C` quit |
+
+`instead` is the injection: the change that makes the claim irrelevant. It is
+typed in its slot, like the claim itself.
 
 Verdicts cycle through unassessed, holds, questionable and invalid. The verdict
 is a judgement about the *assumption*, not about the person who holds it: mark

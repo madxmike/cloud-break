@@ -278,7 +278,10 @@ func (a *App) claimBlock(as Assumption, selected bool, width int) string {
 		}
 	}
 
-	if evidence := strings.TrimSpace(as.Evidence); evidence != "" {
+	if evidence := strings.TrimSpace(as.Evidence); a.editingField(editAssumptionEvidence, as.ID) {
+		a.inline.Resize(textWidth)
+		rows = append(rows, a.fieldRows("  ", "evidence", width)...)
+	} else if evidence != "" {
 		for i, line := range wrapText(evidence, textWidth, 2) {
 			prefix := strings.Repeat(" ", claimTextColumn)
 			if i == 0 {
@@ -289,30 +292,41 @@ func (a *App) claimBlock(as Assumption, selected bool, width int) string {
 	}
 
 	answer := a.cv.cloud.InjectionBreaking(as.ID)
-	if answer == nil {
-		rows = append(rows, fitLine("  "+a.styles.CardLabel.Render("answer")+"    "+
-			a.styles.CardPrompt.Render("nothing yet"), width))
-		return strings.Join(rows, "\n")
-	}
 
 	tone := a.styles.CardValue
 	if selected {
 		tone = a.styles.Strong
 	}
-	for i, line := range wrapText(answer.Text, textWidth, 2) {
-		prefix := strings.Repeat(" ", claimTextColumn)
-		if i == 0 {
-			prefix = "  " + a.styles.CardLabel.Render("answer") + "    "
-		}
-		rows = append(rows, fitLine(prefix+tone.Render(line), width))
-	}
-	if rationale := strings.TrimSpace(answer.Rationale); rationale != "" {
-		for i, line := range wrapText(rationale, textWidth, 2) {
+
+	switch {
+	case a.editingField(editInjectionText, as.ID):
+		a.inline.Resize(textWidth)
+		rows = append(rows, a.fieldRows("  ", "instead", width)...)
+	case answer == nil:
+		rows = append(rows, fitLine("  "+a.styles.CardLabel.Render("instead")+"   "+
+			a.styles.CardPrompt.Render("none yet"), width))
+	default:
+		for i, line := range wrapText(answer.Text, textWidth, 2) {
 			prefix := strings.Repeat(" ", claimTextColumn)
 			if i == 0 {
-				prefix = "  " + a.styles.CardLabel.Render("why") + "       "
+				prefix = "  " + a.styles.CardLabel.Render("instead") + "   "
 			}
-			rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+			rows = append(rows, fitLine(prefix+tone.Render(line), width))
+		}
+	}
+
+	if answer != nil && strings.TrimSpace(answer.Rationale) != "" || a.editingField(editInjectionRationale, as.ID) {
+		if a.editingField(editInjectionRationale, as.ID) {
+			a.inline.Resize(textWidth)
+			rows = append(rows, a.fieldRows("  ", "why", width)...)
+		} else {
+			for i, line := range wrapText(answer.Rationale, textWidth, 2) {
+				prefix := strings.Repeat(" ", claimTextColumn)
+				if i == 0 {
+					prefix = "  " + a.styles.CardLabel.Render("why") + "       "
+				}
+				rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+			}
 		}
 	}
 	return strings.Join(rows, "\n")
@@ -328,15 +342,27 @@ func (a *App) emptyClaim(width int) string {
 		a.styles.CardPrompt.Render("what has to be true for this arrow?"), width)
 }
 
-// claimFieldLines renders the because slot with the inline field inside it, so a
-// claim is typed where it will live.
-func (a *App) claimFieldLines(marker string, width int) []string {
+// fieldRows renders the inline field under its label, so every piece of a
+// claim is typed in the slot it belongs to.
+func (a *App) fieldRows(marker, label string, width int) []string {
 	lines := strings.Split(a.inline.View(), "\n")
-	rows := []string{fitLine(marker+a.styles.CardLabel.Render("because")+"   "+lines[0], width)}
+	pad := max(0, claimTextColumn-lipgloss.Width(marker)-lipgloss.Width(label))
+	rows := []string{fitLine(marker+a.styles.CardLabel.Render(label)+
+		strings.Repeat(" ", pad)+lines[0], width)}
 	for _, line := range lines[1:] {
 		rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+line, width))
 	}
 	return rows
+}
+
+// claimFieldLines is the because slot.
+func (a *App) claimFieldLines(marker string, width int) []string {
+	return a.fieldRows(marker, "because", width)
+}
+
+// editingField reports whether a particular slot is being typed in.
+func (a *App) editingField(kind editKind, claimID string) bool {
+	return a.inline.open && a.inline.target.kind == kind && a.inline.target.claimID == claimID
 }
 
 // claimField is the same thing as a block of its own.

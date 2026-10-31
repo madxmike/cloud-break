@@ -48,11 +48,18 @@ const (
 // editTarget identifies the field being edited. It is plain data rather than a
 // closure so the editor stays inspectable and testable.
 type editTarget struct {
-	kind   editKind
-	slot   Slot
-	id     string   // record being edited, empty when adding one
-	arrow  Arrow    // arrow a new assumption belongs to
-	breaks []string // assumptions a new injection invalidates
+	kind    editKind
+	slot    Slot
+	id      string   // record being edited, empty when adding one
+	arrow   Arrow    // arrow a new assumption belongs to
+	claimID string   // the claim a field is drawn under
+	breaks  []string // assumptions a new injection invalidates
+}
+
+// multilineKind reports whether a field takes more than one line, which decides
+// whether enter saves or breaks the line.
+func multilineKind(k editKind) bool {
+	return k == editAssumptionEvidence || k == editInjectionRationale
 }
 
 // editResult is the outcome of one key press inside the editor.
@@ -225,6 +232,7 @@ func (e *inlineEditor) OpenPlaceholder(target editTarget, placeholder string, wi
 func (e *inlineEditor) openField(target editTarget, value, placeholder string, width int) tea.Cmd {
 	e.open = true
 	e.target = target
+	e.keys = newEditorKeys(multilineKind(target.kind))
 	e.ta.SetWidth(max(8, width))
 	e.ta.Placeholder = placeholder
 	e.ta.SetValue(value)

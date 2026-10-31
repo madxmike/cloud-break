@@ -372,8 +372,8 @@ func TestEvidenceIsSavedAndTrims(t *testing.T) {
 	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("e"))
-	if !a.ed.open {
-		t.Fatal("e did not open the evidence editor")
+	if !a.inline.open {
+		t.Fatal("e did not open the evidence field")
 	}
 	for _, r := range "three regressions" {
 		a.Update(keyMsg(string(r)))
@@ -402,7 +402,7 @@ func TestClaimActionsWithoutAClaimExplainThemselves(t *testing.T) {
 		if a.flash.text == "" {
 			t.Errorf("%q with no claim gave no message", k)
 		}
-		if a.ed.open {
+		if a.ed.open || a.inline.open {
 			t.Errorf("%q opened an editor with no claim", k)
 		}
 	}
@@ -471,8 +471,8 @@ func TestInjectAnswersTheSelectedClaim(t *testing.T) {
 	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("i"))
-	if !a.ed.open {
-		t.Fatal("i did not open the answer editor")
+	if !a.inline.open {
+		t.Fatal("i did not open the answer field")
 	}
 	typeString(a, "pair every change with a test")
 	a.Update(keyMsg("enter"))
@@ -497,10 +497,10 @@ func TestInjectOpensTheAnswerThatAlreadyExists(t *testing.T) {
 	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("i"))
-	if !a.ed.open {
+	if !a.inline.open {
 		t.Fatal("i did not open the existing answer")
 	}
-	if got := a.ed.Value(); got != "automate the review" {
+	if got := a.inline.Value(); got != "automate the review" {
 		t.Errorf("editor value = %q", got)
 	}
 	a.Update(keyMsg("esc"))
@@ -517,8 +517,8 @@ func TestAnswerRationaleIsSaved(t *testing.T) {
 	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("r"))
-	if !a.ed.open {
-		t.Fatal("r did not open the rationale editor")
+	if !a.inline.open {
+		t.Fatal("r did not open the rationale field")
 	}
 	typeString(a, "the test outlives the review")
 	a.Update(keyMsg("ctrl+s"))
@@ -535,7 +535,7 @@ func TestClearingAnAnswerRemovesIt(t *testing.T) {
 	a.focusClaim(ArrowBD, id)
 
 	a.Update(keyMsg("i")) // opens the existing answer
-	if !a.ed.open {
+	if !a.inline.open {
 		t.Fatal("i did not open the answer")
 	}
 	for range len("automate the review") {

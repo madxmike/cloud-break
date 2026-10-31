@@ -437,11 +437,7 @@ func (a *App) addAssumption() tea.Cmd {
 
 // startClaimField edits a claim where it sits, inside its because slot.
 func (a *App) startClaimField(target editTarget, value string) tea.Cmd {
-	width := a.cv.paneWidth
-	if width <= 0 {
-		width = a.width
-	}
-	return a.inline.Open(target, value, max(8, width-claimTextColumn-1))
+	return a.openInline(target, value)
 }
 
 // add dispatches the add key to whichever pane is open.
@@ -472,17 +468,29 @@ func (a *App) injectHere() tea.Cmd {
 	}
 	as, ok := a.selectedAssumption()
 	if !ok {
-		return a.setFlash("Add a claim first; the answer belongs to it.", false)
+		return a.setFlash("Add a claim first; the alternative sits under it.", false)
 	}
-	arrow, _ := a.challengeArrow()
 
 	if existing := a.cv.cloud.InjectionBreaking(as.ID); existing != nil {
-		return a.editInjection(existing.ID)
+		return a.openInline(editTarget{kind: editInjectionText, id: existing.ID, claimID: as.ID},
+			existing.Text)
 	}
-	return a.ed.Open(editTarget{kind: editInjectionText, breaks: []string{as.ID}},
-		fmt.Sprintf("%s · answer", arrow),
-		"What change makes this claim irrelevant? "+shorten(as.Text, 60),
-		"", a.width, false)
+	return a.openInline(editTarget{kind: editInjectionText, claimID: as.ID, breaks: []string{as.ID}}, "")
+}
+
+// openInline puts the caret in a field that lives in the pane, sized to the
+// column its text occupies.
+func (a *App) openInline(target editTarget, value string) tea.Cmd {
+	return a.inline.Open(target, value, a.claimFieldWidth())
+}
+
+// claimFieldWidth is the room the words get inside a claim block.
+func (a *App) claimFieldWidth() int {
+	width := a.cv.paneWidth
+	if width <= 0 {
+		width = a.width
+	}
+	return max(8, width-claimTextColumn-1)
 }
 
 // selectInjectionRow puts the cursor on an injection row.
@@ -509,11 +517,10 @@ func (a *App) editInjectionRationale() tea.Cmd {
 	}
 	answer := a.cv.cloud.InjectionBreaking(as.ID)
 	if answer == nil {
-		return a.setFlash("There is no answer yet; i starts one.", false)
+		return a.setFlash("Nothing to do instead yet; i starts one.", false)
 	}
-	return a.ed.Open(editTarget{kind: editInjectionRationale, id: answer.ID},
-		"Answer · why it works", "Does it reach the objective without breaking anything else?",
-		answer.Rationale, a.width, true)
+	return a.openInline(editTarget{kind: editInjectionRationale, id: answer.ID, claimID: as.ID},
+		answer.Rationale)
 }
 
 // askDeleteInjection confirms before removing an injection.
@@ -573,10 +580,7 @@ func (a *App) editEvidence() tea.Cmd {
 	if !ok {
 		return a.setFlash("Add a claim first; the evidence belongs to it.", false)
 	}
-	arrow, _ := a.challengeArrow()
-	return a.ed.Open(editTarget{kind: editAssumptionEvidence, id: as.ID, arrow: arrow},
-		fmt.Sprintf("%s · evidence", arrow), "What makes this claim hold, or fail?",
-		as.Evidence, a.width, true)
+	return a.openInline(editTarget{kind: editAssumptionEvidence, id: as.ID, claimID: as.ID}, as.Evidence)
 }
 
 // askDeleteAssumption confirms before removing an assumption.
