@@ -1,0 +1,46 @@
+{
+  "id": "example-schema-change",
+  "title": "Schema change without downtime",
+  "parties": [
+    "Backend",
+    "SRE"
+  ],
+  "statements": {
+    "A": "deploy during business hours without disruption",
+    "B": "old and new versions run side by side for minutes",
+    "C": "the schema stays honest about the domain",
+    "D": "rename the column in the same change as the code",
+    "D'": "keep the old column name for good"
+  },
+  "assumptions": [
+    {
+      "id": "schema-1",
+      "arrow": "A-B",
+      "text": "a rolling deploy keeps both versions live for minutes",
+      "verdict": "holds"
+    },
+    {
+      "id": "schema-2",
+      "arrow": "C-D'",
+      "text": "leaving the old name costs nothing",
+      "verdict": "questionable",
+      "evidence": "the last temporary column outlived four years and six bugs"
+    },
+    {
+      "id": "schema-3",
+      "arrow": "B-D",
+      "text": "a rename has to land with the code that uses it",
+      "verdict": "questionable"
+    },
+    {
+      "id": "schema-4",
+      "arrow": "A-C",
+      "text": "the schema only matters at rest",
+      "verdict": "holds"
+    }
+  ],
+  "injections": [],
+  "verified": false,
+  "created": "2026-10-30T23:45:21Z",
+  "updated": "2026-10-31T00:15:21Z"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "example-rewrite",
+  "title": "Rewrite or refactor",
+  "parties": [
+    "Engineering",
+    "Product"
+  ],
+  "statements": {
+    "A": "the product keeps improving",
+    "B": "the code can carry the next two years",
+    "C": "the team keeps shipping through the change",
+    "D": "rewrite the service from scratch",
+    "D'": "keep patching what is there"
+  },
+  "assumptions": [
+    {
+      "id": "rw-1",
+      "arrow": "A-C",
+      "text": "a rewrite stops feature work for two quarters",
+      "verdict": "holds",
+      "evidence": "the 2021 rewrite shipped 14 months late and blocked the roadmap"
+    },
+    {
+      "id": "rw-2",
+      "arrow": "B-D",
+      "text": "the current structure cannot be improved in place",
+      "verdict": "invalid",
+      "evidence": "the last two features needed seams we could have added one at a time"
+    },
+    {
+      "id": "rw-3",
+      "arrow": "C-D'",
+      "text": "patching costs less than replacing",
+      "verdict": "questionable"
+    }
+  ],
+  "injections": [
+    {
+      "id": "rw-answer",
+      "breaks": [
+        "rw-2"
+      ],
+      "text": "extract the seams behind interfaces and replace one piece at a time",
+      "rationale": "every step ships, and every step is reversible"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-30T22:55:21Z",
+  "updated": "2026-10-30T23:25:21Z"
+}

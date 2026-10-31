@@ -1,0 +1,55 @@
+{
+  "id": "example-consistency",
+  "title": "Consistency or availability",
+  "parties": [
+    "Product",
+    "Platform"
+  ],
+  "statements": {
+    "A": "users trust what the app shows them",
+    "B": "a read reflects the write that just happened",
+    "C": "the app answers during a network partition",
+    "D": "reject writes when the cluster loses quorum",
+    "D'": "answer every request from the nearest replica"
+  },
+  "assumptions": [
+    {
+      "id": "cap-1",
+      "arrow": "A-B",
+      "text": "a user whose own write vanishes stops trusting the app",
+      "verdict": "holds"
+    },
+    {
+      "id": "cap-2",
+      "arrow": "A-C",
+      "text": "an error page costs more trust than a stale feed",
+      "verdict": "holds"
+    },
+    {
+      "id": "cap-3",
+      "arrow": "B-D",
+      "text": "every screen needs the same consistency",
+      "verdict": "invalid",
+      "evidence": "the feed carried 30 seconds of lag for a year unnoticed; the balance screen did not"
+    },
+    {
+      "id": "cap-4",
+      "arrow": "C-D'",
+      "text": "answering from a replica is always safe",
+      "verdict": "questionable"
+    }
+  ],
+  "injections": [
+    {
+      "id": "cap-answer",
+      "breaks": [
+        "cap-3"
+      ],
+      "text": "make the balance linearizable and let everything else be eventual",
+      "rationale": "the trust budget is spent where the money is"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-31T01:15:21Z",
+  "updated": "2026-10-31T01:45:21Z"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "example-cache",
+  "title": "Cache invalidation",
+  "parties": [
+    "Web",
+    "Data"
+  ],
+  "statements": {
+    "A": "pages feel instant for readers",
+    "B": "readers never see content that changed",
+    "C": "the origin survives the traffic",
+    "D": "cache every page for an hour",
+    "D'": "serve every request from the origin"
+  },
+  "assumptions": [
+    {
+      "id": "cache-1",
+      "arrow": "A-C",
+      "text": "the origin cannot serve the read volume",
+      "verdict": "holds",
+      "evidence": "the origin peaks at 40x capacity on launch days"
+    },
+    {
+      "id": "cache-2",
+      "arrow": "A-B",
+      "text": "a reader who sees an old price will complain",
+      "verdict": "questionable"
+    },
+    {
+      "id": "cache-3",
+      "arrow": "B-D",
+      "text": "content changes often enough that an hour is unsafe",
+      "verdict": "invalid",
+      "evidence": "edits touched 0.3% of pages a day, and the writer knows which ones"
+    }
+  ],
+  "injections": [
+    {
+      "id": "cache-answer",
+      "breaks": [
+        "cache-3"
+      ],
+      "text": "invalidate on write and cache until then",
+      "rationale": "the write is the only moment a page changes"
+    }
+  ],
+  "verified": true,
+  "created": "2026-10-31T00:45:21Z",
+  "updated": "2026-10-31T01:15:21Z"
+}

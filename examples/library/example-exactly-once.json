@@ -1,0 +1,51 @@
+{
+  "id": "example-exactly-once",
+  "title": "Retries without duplicates",
+  "parties": [
+    "Client team",
+    "Payments"
+  ],
+  "statements": {
+    "A": "a payment lands exactly once",
+    "B": "a lost response is retried",
+    "C": "the network delivers a request only once",
+    "D": "retry every failed call",
+    "D'": "never retry, fail the user"
+  },
+  "assumptions": [
+    {
+      "id": "once-1",
+      "arrow": "A-C",
+      "text": "the network guarantees at-most-once delivery",
+      "verdict": "invalid",
+      "evidence": "the gateway logged 1,200 duplicate captures last quarter"
+    },
+    {
+      "id": "once-2",
+      "arrow": "A-D'",
+      "text": "a failed payment is safer than a duplicate",
+      "verdict": "questionable"
+    },
+    {
+      "id": "once-3",
+      "arrow": "B-D",
+      "text": "the server cannot tell a retry from a new request",
+      "verdict": "invalid",
+      "evidence": "the client already sends a request id for tracing"
+    }
+  ],
+  "injections": [
+    {
+      "id": "once-answer",
+      "breaks": [
+        "once-3",
+        "once-1"
+      ],
+      "text": "send an idempotency key and make the capture handler honour it",
+      "rationale": "the key turns a retry into a no-op"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-31T00:15:21Z",
+  "updated": "2026-10-31T00:45:21Z"
+}

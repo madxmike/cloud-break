@@ -85,6 +85,27 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseArgsDemo(t *testing.T) {
+	var stderr bytes.Buffer
+	opts, err := parseArgs([]string{"-demo"}, &stderr)
+	if err != nil {
+		t.Fatalf("parseArgs: %v", err)
+	}
+	if !opts.demo {
+		t.Error("demo flag not set")
+	}
+}
+
+func TestRunHelpIsNotAFailure(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	if err := run([]string{"-h"}, &out, &errBuf); err != nil {
+		t.Errorf("run(-h) = %v, want nil", err)
+	}
+	if !strings.Contains(errBuf.String(), "usage: cloud-break") {
+		t.Errorf("usage was not printed: %q", errBuf.String())
+	}
+}
+
 func TestRunVersionNeedsNoTerminal(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	if err := run([]string{"-version"}, &out, &errBuf); err != nil {

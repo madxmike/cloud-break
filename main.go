@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ func main() {
 // options are the parsed command line.
 type options struct {
 	dir         string
+	demo        bool
 	showVersion bool
 }
 
@@ -33,6 +35,7 @@ func parseArgs(args []string, stderr io.Writer) (options, error) {
 
 	var opts options
 	fs.StringVar(&opts.dir, "dir", "", "library directory (default: $XDG_DATA_HOME/cloud-break)")
+	fs.BoolVar(&opts.demo, "demo", false, "start with the bundled example clouds")
 	fs.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(stderr, "cloud-break %s - build and process evaporating clouds\n\n", version)
@@ -50,16 +53,36 @@ func parseArgs(args []string, stderr io.Writer) (options, error) {
 func run(args []string, stdout, stderr io.Writer) error {
 	opts, err := parseArgs(args, stderr)
 	if err != nil {
-		return err
+		// -h prints the usage through the flag set; that is not a failure.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return fmt.Errorf("read the command line: %w", err)
 	}
 	if opts.showVersion {
 		fmt.Fprintln(stdout, "cloud-break", version)
 		return nil
 	}
 
-	store, err := OpenStore(opts.dir)
+	dir := opts.dir
+	if opts.demo && strings.TrimSpace(dir) == "" {
+		// A demo should leave the real library alone, so give it its own.
+		temp, err := os.MkdirTemp("", "cloud-break-demo-")
+		if err != nil {
+			return fmt.Errorf("create the demo library: %w", err)
+		}
+		defer os.RemoveAll(temp)
+		dir = temp
+	}
+
+	store, err := OpenStore(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("open the library: %w", err)
+	}
+	if opts.demo {
+		if err := seedDemo(store.Dir()); err != nil {
+			return err
+		}
 	}
 	return runTUI(store)
 }

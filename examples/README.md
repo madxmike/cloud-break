@@ -45,20 +45,30 @@ vhs examples/dissolve/.vhs/demo.tape
 
 ## Example clouds
 
-[`library/`](library) holds five clouds to browse, one per kind of conflict an
-engineer runs into, each in a different state:
+[`library/`](library) holds ten clouds to browse, each in a different state.
+Five are everyday conflicts; five are the classic hard problems, the ones where
+the usual answer is a trade-off and the way out is a change of assumption.
 
 | Cloud | Conflict | State |
 |:--|:--|:--|
-| Change control | release cadence vs the change board | dissolving — a claim is invalid, an answer exists, unverified |
-| Tech debt quarter | the rewrite vs the roadmap | open — four claims, none judged yet |
-| On-call load | paging for everything vs resting the team | dissolved — broken, answered and verified |
-| Hiring bar | years of Go vs potential | dissolving — an answer without a verification |
-| Split the monolith | services vs one deployable | draft — four statements, so two arrows cannot be read |
+| Change control | release cadence vs the change board | dissolving |
+| Tech debt quarter | the rewrite vs the roadmap | open |
+| On-call load | paging for everything vs resting the team | dissolved |
+| Hiring bar | years of Go vs potential | dissolving |
+| Split the monolith | services vs one deployable | draft |
+| Consistency or availability | linearizable reads vs answering during a partition | dissolving |
+| Cache invalidation | instant pages vs never stale | dissolved |
+| Retries without duplicates | retrying vs charging twice | dissolving |
+| Schema change without downtime | compatibility vs a clean schema | open |
+| Rewrite or refactor | replacing the service vs shipping through it | dissolving |
 
-Copy them into your own library and open them:
+The hard five each turn on an assumption that is not true as stated: that every
+read needs the same consistency, that staleness has to be bounded by time, that
+a server cannot tell a retry from a new request, that a rename must land with
+its code, that a structure cannot be improved in place.
+
+Copy them into your own library and open them, or let the binary bring its own:
 
 ```sh
-cp examples/library/*.json "${XDG_DATA_HOME:-$HOME/.local/share}/cloud-break/"
-cloud-break
+cloud-break --demo   # a temporary library seeded with all of these
 ```
