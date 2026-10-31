@@ -72,9 +72,6 @@ Clouds live in one JSON file each, under the first of:
 3. `$XDG_DATA_HOME/cloud-break`
 4. `~/.local/share/cloud-break`
 
-Saves are atomic — written to a temporary file and renamed into place — so an
-interrupted write cannot truncate a cloud.
-
 ## Processing a cloud
 
 The **process** pane tracks the five stages and derives each one from the
@@ -101,27 +98,11 @@ Nothing is ever marked dissolved on your behalf.
 | Assumptions | `↑/k` `↓/j` move · `a` add · `enter` edit · `v` verdict · `e` evidence · `i` inject · `x` delete |
 | Injections | `↑/k` `↓/j` move · `a` add · `enter` edit · `r` why it works · `x` delete · `V` verify |
 | Process | `V` verify |
-| Anywhere | `1`–`5` jump to pane · `tab` `shift+tab` cycle · `?` help · `esc/q` back · `^C` quit |
+| Anywhere | `1`–`5` jump to pane · `←`/`→` `tab` `shift+tab` cycle · `?` help · `esc/q` back · `^C` quit |
 
 Verdicts cycle through unassessed, holds, questionable and invalid. The verdict
 is a judgement about the *assumption*, not about the person who holds it: mark
 one invalid when you can show it does not hold, then say what breaks it.
-
-## Development
-
-```sh
-go test ./...        # 100+ tests, including the layout invariants
-go vet ./...
-```
-
-Built with [Bubble Tea v2](https://charm.land), Bubbles and Lip Gloss. The
-layout is pinned by tests rather than by hand: every screen renders exactly the
-terminal height, no line exceeds the terminal width, and the help sheet
-degrades from two columns to one until its box fits, so it can never lose its
-bottom border.
-
-The package is deliberately flat: one `package main` at the repository root,
-one file per concern (shell, library, cloud screen, domain, storage, editor).
 
 ## License
 
