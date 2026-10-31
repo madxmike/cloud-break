@@ -10,3 +10,6 @@ coverage.out
 
 # macOS
 .DS_Store
+
+# pi agent state
+.pi/

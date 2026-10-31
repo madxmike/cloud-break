@@ -1,12 +1,18 @@
 # cloud-break
 
-A terminal tool for building and processing **evaporating clouds** — the
-conflict resolution diagrams from Goldratt's Theory of Constraints.
+cloud-break is a tui program designed to help create and resolve [Evaportating Clouds](https://en.wikipedia.org/wiki/Evaporating_cloud).
 
-A cloud states a disagreement without proposing a solution: a shared objective,
-one need on each side, and the two wants that collide. Behind each of those five
-statements sits an assumption. The cloud evaporates when one of those
-assumptions turns out to be false and an injection makes it irrelevant.
+## What is an "Evaporating Cloud"?
+
+In short, it is a thinking tool designed for resolving conflicts between two conflicting ideas. Typically these conflicts are the result of one or more assumptions. 
+
+The "cloud" is a specific diagram for labeling and seeing the conflicting statements.
+
+"Evaporating" the cloud is the process of finding assumptions made in one or more of the statements being made by providing cause and evidence for a claim.
+If a claim cannot be supported by a cause and evidence (or a chain of such) then it is fudementally an assumption rather than fact. Once assumptions are
+clear the conflict is often easily resolved by constructing a win-win solution to replace that assumed claim.
+
+## Reading Evaporating Cloud
 
 ```
                     ╭─ A · Objective ─────╮
