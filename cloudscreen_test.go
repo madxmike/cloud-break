@@ -319,7 +319,7 @@ func TestAddClaimToTheArrowOnScreen(t *testing.T) {
 	if claims[0].Arrow != ArrowBD || claims[0].Text != "review catches every regression" {
 		t.Errorf("claim = %+v", claims[0])
 	}
-	if selected, ok := a.selectedAssumption(); !ok || selected.ID != claims[0].ID {
+	if current, ok := a.currentClaim(); !ok || current.ID != claims[0].ID {
 		t.Error("the cursor did not move onto the new claim")
 	}
 
@@ -437,24 +437,51 @@ func TestDeleteAssumptionNeedsConfirmation(t *testing.T) {
 	}
 }
 
-func TestClaimCursorStaysInRange(t *testing.T) {
+func TestCursorWalksEveryRowOfTheForm(t *testing.T) {
 	a := openChallenge(t)
-	for _, text := range []string{"one", "two", "three"} {
+	for _, text := range []string{"one", "two"} {
 		a.cv.cloud.AddAssumption(ArrowBD, text)
 	}
 	a.moveArrow(2) // onto B-D
 
-	for range 10 {
+	seen := map[claimSlot]bool{}
+	for range 12 {
 		a.Update(keyMsg("down"))
+		seen[a.cv.challengeSlot.slot] = true
 	}
-	if got, want := a.cv.challengeAssumption, 2; got != want {
-		t.Errorf("cursor = %d, want %d", got, want)
+	for _, slot := range []claimSlot{slotBecause, slotEvidence, slotInstead} {
+		if !seen[slot] {
+			t.Errorf("down never reached slot %v", slot)
+		}
 	}
-	for range 10 {
+	if got := a.cv.challengeSlot.claim; got != 1 {
+		t.Errorf("ended on claim %d, want the last one", got)
+	}
+
+	for range 12 {
 		a.Update(keyMsg("up"))
 	}
-	if a.cv.challengeAssumption != 0 {
-		t.Errorf("cursor = %d, want 0", a.cv.challengeAssumption)
+	if a.cv.challengeSlot != (claimCursor{claim: 0, slot: slotBecause}) {
+		t.Errorf("cursor = %+v, want the first row", a.cv.challengeSlot)
+	}
+}
+
+func TestVerticalMovementWorksWithASingleClaim(t *testing.T) {
+	a := openChallenge(t)
+	id := a.cv.cloud.AddAssumption(ArrowBD, "there is only one claim here")
+	a.focusClaim(ArrowBD, id)
+
+	start := a.cv.challengeSlot
+	a.Update(keyMsg("down"))
+	if a.cv.challengeSlot == start {
+		t.Fatal("down did nothing, which is what makes the form feel stuck")
+	}
+	if a.cv.challengeSlot.slot != slotEvidence {
+		t.Errorf("down went to %v, want evidence", a.cv.challengeSlot.slot)
+	}
+	a.Update(keyMsg("down"))
+	if a.cv.challengeSlot.slot != slotInstead {
+		t.Errorf("second down went to %v, want instead", a.cv.challengeSlot.slot)
 	}
 }
 

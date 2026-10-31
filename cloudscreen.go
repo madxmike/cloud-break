@@ -48,12 +48,12 @@ func (p pane) next(delta int) pane {
 // cloudScreen is the editor for one cloud: the statement slots, the active pane
 // and the cursor that says which slot is being worked on.
 type cloudScreen struct {
-	cloud               Cloud
-	pane                pane
-	cursor              int // statement slot
-	paneWidth           int // column the pane was last drawn in
-	challengeArrow      int // which readable arrow the form shows
-	challengeAssumption int // which claim behind that arrow
+	cloud          Cloud
+	pane           pane
+	cursor         int         // statement slot
+	paneWidth      int         // column the pane was last drawn in
+	challengeArrow int         // which readable arrow the form shows
+	challengeSlot  claimCursor // which row of the form has the cursor
 }
 
 func newCloudScreen(c Cloud) cloudScreen { return cloudScreen{cloud: c} }
@@ -155,13 +155,79 @@ func (a *App) challengeAssumptions() []Assumption {
 	return a.cv.cloud.AssumptionsFor(arrow)
 }
 
-// selectedAssumption is the claim under the cursor.
-func (a *App) selectedAssumption() (Assumption, bool) {
+// claimSlot is one labelled row of a claim.
+type claimSlot int
+
+const (
+	slotBecause claimSlot = iota
+	slotEvidence
+	slotInstead
+	slotWhy
+)
+
+// claimCursor points at one row: the claim it belongs to and which slot of it.
+type claimCursor struct {
+	claim int
+	slot  claimSlot
+}
+
+// claimSlots lists the rows on screen, in the order they are drawn. The why row
+// only exists once there is something to explain.
+func (a *App) claimSlots() []claimCursor {
+	claims := a.challengeAssumptions()
+	slots := make([]claimCursor, 0, len(claims)*4)
+	for i, as := range claims {
+		slots = append(slots,
+			claimCursor{claim: i, slot: slotBecause},
+			claimCursor{claim: i, slot: slotEvidence},
+			claimCursor{claim: i, slot: slotInstead})
+		if a.cv.cloud.InjectionBreaking(as.ID) != nil {
+			slots = append(slots, claimCursor{claim: i, slot: slotWhy})
+		}
+	}
+	return slots
+}
+
+// focusCursor puts the cursor on a row that exists.
+func (a *App) focusCursor(c claimCursor) {
+	slots := a.claimSlots()
+	if len(slots) == 0 {
+		a.cv.challengeSlot = claimCursor{}
+		return
+	}
+	for _, slot := range slots {
+		if slot == c {
+			a.cv.challengeSlot = c
+			return
+		}
+	}
+	a.cv.challengeSlot = slots[0]
+}
+
+// moveSlot walks the rows of the form.
+func (a *App) moveSlot(delta int) {
+	slots := a.claimSlots()
+	if len(slots) == 0 {
+		return
+	}
+	position := 0
+	for i, slot := range slots {
+		if slot == a.cv.challengeSlot {
+			position = i
+			break
+		}
+	}
+	position = max(0, min(position+delta, len(slots)-1))
+	a.cv.challengeSlot = slots[position]
+}
+
+// currentClaim is the claim the cursor is inside.
+func (a *App) currentClaim() (Assumption, bool) {
 	claims := a.challengeAssumptions()
 	if len(claims) == 0 {
 		return Assumption{}, false
 	}
-	return claims[max(0, min(a.cv.challengeAssumption, len(claims)-1))], true
+	return claims[max(0, min(a.cv.challengeSlot.claim, len(claims)-1))], true
 }
 
 // renderChallenge is the workbench: one arrow, its sentence, and the claims
@@ -188,11 +254,15 @@ func (a *App) renderChallenge(width, height int) string {
 		return strings.Join(append(head, a.emptyClaim(width)), "\n")
 	}
 
-	selected := max(0, min(a.cv.challengeAssumption, len(claims)-1))
+	focused := a.cv.challengeSlot.claim
+	if focused < 0 || focused >= len(claims) {
+		focused = 0
+	}
 	blocks := make([]string, len(claims))
 	heights := make([]int, len(claims))
 	for i, as := range claims {
-		blocks[i] = a.claimBlock(as, i == selected && !a.addingClaim(), width)
+		hasFocus := i == focused && !a.addingClaim()
+		blocks[i] = a.claimBlock(as, a.cv.challengeSlot.slot, hasFocus, width)
 		heights[i] = lipgloss.Height(blocks[i])
 	}
 
@@ -201,7 +271,7 @@ func (a *App) renderChallenge(width, height int) string {
 		heights = append(heights, lipgloss.Height(blocks[len(blocks)-1]))
 	}
 
-	start, end := visibleRange(heights, selected, max(3, height-len(head)))
+	start, end := visibleRange(heights, focused, max(3, height-len(head)))
 	return strings.Join(append(head, strings.Join(blocks[start:end], "\n")), "\n")
 }
 
@@ -247,22 +317,39 @@ const claimTextColumn = 12
 
 // claimBlock renders one claim: what is asserted, how it was judged, and the
 // answer to it.
-func (a *App) claimBlock(as Assumption, selected bool, width int) string {
-	marker := "  "
-	textStyle := a.styles.CardValue
-	if selected {
-		marker = "▸ "
-		textStyle = a.styles.Strong
-	}
+func (a *App) claimBlock(as Assumption, focused claimSlot, hasFocus bool, width int) string {
 	textWidth := max(8, width-claimTextColumn-1)
 
+	mark := func(slot claimSlot) string {
+		if hasFocus && slot == focused {
+			return "▸ "
+		}
+		return "  "
+	}
+	label := func(slot claimSlot, name string) string {
+		style := a.styles.CardLabel
+		if hasFocus && slot == focused {
+			style = a.styles.CardLabelFocused
+		}
+		return style.Render(name) + strings.Repeat(" ", max(0, claimTextColumn-2-lipgloss.Width(name)))
+	}
+	tone := func(slot claimSlot, base lipgloss.Style) lipgloss.Style {
+		if hasFocus && slot == focused {
+			return a.styles.Strong
+		}
+		return base
+	}
+
 	var rows []string
+
+	// because: the claim itself, with its verdict on the right.
 	if a.claimEditing(as.ID) {
 		a.inline.Resize(textWidth)
-		rows = a.claimFieldLines(marker, width)
+		rows = append(rows, a.fieldRows(mark(slotBecause), "because", width)...)
 	} else {
 		lines := wrapText(as.Text, textWidth, 4)
-		first := marker + a.styles.CardLabel.Render("because") + "   " + textStyle.Render(lines[0])
+		first := mark(slotBecause) + label(slotBecause, "because") +
+			tone(slotBecause, a.styles.CardValue).Render(lines[0])
 		if as.Verdict != Unassessed {
 			verdict := a.styles.VerdictStyle(as.Verdict).Render(as.Verdict.Glyph() + " " + as.Verdict.String())
 			if room := width - lipgloss.Width(first) - 1; room >= lipgloss.Width(verdict) {
@@ -271,64 +358,66 @@ func (a *App) claimBlock(as Assumption, selected bool, width int) string {
 				lines = append(lines, verdict)
 			}
 		}
-
 		rows = append(rows, fitLine(first, width))
 		for _, line := range lines[1:] {
-			rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+textStyle.Render(line), width))
+			rows = append(rows, fitLine(strings.Repeat(" ", claimTextColumn)+
+				tone(slotBecause, a.styles.CardValue).Render(line), width))
 		}
 	}
 
-	if evidence := strings.TrimSpace(as.Evidence); a.editingField(editAssumptionEvidence, as.ID) {
+	// evidence
+	switch {
+	case a.editingField(editAssumptionEvidence, as.ID):
 		a.inline.Resize(textWidth)
-		rows = append(rows, a.fieldRows("  ", "evidence", width)...)
-	} else if evidence != "" {
-		for i, line := range wrapText(evidence, textWidth, 2) {
+		rows = append(rows, a.fieldRows(mark(slotEvidence), "evidence", width)...)
+	case strings.TrimSpace(as.Evidence) != "":
+		for i, line := range wrapText(as.Evidence, textWidth, 2) {
 			prefix := strings.Repeat(" ", claimTextColumn)
 			if i == 0 {
-				prefix = "  " + a.styles.CardLabel.Render("evidence") + "  "
+				prefix = mark(slotEvidence) + label(slotEvidence, "evidence")
 			}
-			rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+			rows = append(rows, fitLine(prefix+tone(slotEvidence, a.styles.CardHint).Render(line), width))
 		}
+	default:
+		rows = append(rows, fitLine(mark(slotEvidence)+label(slotEvidence, "evidence")+
+			tone(slotEvidence, a.styles.CardPrompt).Render("none yet"), width))
 	}
 
 	answer := a.cv.cloud.InjectionBreaking(as.ID)
 
-	tone := a.styles.CardValue
-	if selected {
-		tone = a.styles.Strong
-	}
-
+	// instead: the change that makes the claim irrelevant.
 	switch {
 	case a.editingField(editInjectionText, as.ID):
 		a.inline.Resize(textWidth)
-		rows = append(rows, a.fieldRows("  ", "instead", width)...)
+		rows = append(rows, a.fieldRows(mark(slotInstead), "instead", width)...)
 	case answer == nil:
-		rows = append(rows, fitLine("  "+a.styles.CardLabel.Render("instead")+"   "+
-			a.styles.CardPrompt.Render("none yet"), width))
+		rows = append(rows, fitLine(mark(slotInstead)+label(slotInstead, "instead")+
+			tone(slotInstead, a.styles.CardPrompt).Render("none yet"), width))
 	default:
 		for i, line := range wrapText(answer.Text, textWidth, 2) {
 			prefix := strings.Repeat(" ", claimTextColumn)
 			if i == 0 {
-				prefix = "  " + a.styles.CardLabel.Render("instead") + "   "
+				prefix = mark(slotInstead) + label(slotInstead, "instead")
 			}
-			rows = append(rows, fitLine(prefix+tone.Render(line), width))
+			rows = append(rows, fitLine(prefix+tone(slotInstead, a.styles.CardValue).Render(line), width))
 		}
 	}
 
-	if answer != nil && strings.TrimSpace(answer.Rationale) != "" || a.editingField(editInjectionRationale, as.ID) {
-		if a.editingField(editInjectionRationale, as.ID) {
-			a.inline.Resize(textWidth)
-			rows = append(rows, a.fieldRows("  ", "why", width)...)
-		} else {
-			for i, line := range wrapText(answer.Rationale, textWidth, 2) {
-				prefix := strings.Repeat(" ", claimTextColumn)
-				if i == 0 {
-					prefix = "  " + a.styles.CardLabel.Render("why") + "       "
-				}
-				rows = append(rows, fitLine(prefix+a.styles.CardHint.Render(line), width))
+	// why: only once there is an answer to explain.
+	switch {
+	case a.editingField(editInjectionRationale, as.ID):
+		a.inline.Resize(textWidth)
+		rows = append(rows, a.fieldRows(mark(slotWhy), "why", width)...)
+	case answer != nil && strings.TrimSpace(answer.Rationale) != "":
+		for i, line := range wrapText(answer.Rationale, textWidth, 2) {
+			prefix := strings.Repeat(" ", claimTextColumn)
+			if i == 0 {
+				prefix = mark(slotWhy) + label(slotWhy, "why")
 			}
+			rows = append(rows, fitLine(prefix+tone(slotWhy, a.styles.CardHint).Render(line), width))
 		}
 	}
+
 	return strings.Join(rows, "\n")
 }
 

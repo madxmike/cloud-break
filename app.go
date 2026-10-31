@@ -322,15 +322,14 @@ func (a *App) showPane(p pane) {
 	a.cv.pane = p
 	if p == paneChallenge {
 		a.cv.challengeArrow = 0
-		a.cv.challengeAssumption = 0
+		a.cv.challengeSlot = claimCursor{}
 	}
 }
 
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
 	if a.cv.pane == paneChallenge {
-		last := len(a.challengeAssumptions()) - 1
-		a.cv.challengeAssumption = max(0, min(a.cv.challengeAssumption+delta, last))
+		a.moveSlot(delta)
 		return
 	}
 	a.cv.move(delta, len(SlotInfos()))
@@ -347,7 +346,7 @@ func (a *App) moveArrow(delta int) {
 		return
 	}
 	a.cv.challengeArrow = (a.cv.challengeArrow + delta + len(arrows)) % len(arrows)
-	a.cv.challengeAssumption = 0
+	a.cv.challengeSlot = claimCursor{}
 }
 
 // activate handles enter: edit the highlighted statement or assumption.
@@ -356,22 +355,32 @@ func (a *App) activate() tea.Cmd {
 	case paneStatements:
 		return a.startInline()
 	case paneChallenge:
-		return a.editClaim()
+		return a.editFocusedSlot()
 	}
 	a.cv.pane = paneStatements
 	return nil
 }
 
-// editClaim edits the words of the claim under the cursor, or starts the first
-// one when the arrow has none yet.
-func (a *App) editClaim() tea.Cmd {
-	as, ok := a.selectedAssumption()
+// editFocusedSlot edits whichever row of the form the cursor is on.
+func (a *App) editFocusedSlot() tea.Cmd {
+	as, ok := a.currentClaim()
 	if !ok {
 		return a.addAssumption()
 	}
-	arrow, _ := a.challengeArrow()
-	return a.startClaimField(editTarget{kind: editAssumptionText, id: as.ID, arrow: arrow}, as.Text)
+
+	switch a.cv.challengeSlot.slot {
+	case slotEvidence:
+		return a.editEvidence()
+	case slotInstead:
+		return a.injectHere()
+	case slotWhy:
+		return a.editInjectionRationale()
+	}
+	return a.startClaimField(editTarget{kind: editAssumptionText, id: as.ID}, as.Text)
 }
+
+// editClaim edits the words of the claim under the cursor, or starts the first
+// one when the arrow has none yet.
 
 // editSelectedRow edits whatever the cursor rests on: an assumption's text, an
 // injection's idea, or a new assumption under a heading.
@@ -453,7 +462,7 @@ func (a *App) deleteSelected() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	as, ok := a.selectedAssumption()
+	as, ok := a.currentClaim()
 	if !ok {
 		return a.setFlash("Add a claim first; there is nothing to delete.", false)
 	}
@@ -466,10 +475,11 @@ func (a *App) injectHere() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	as, ok := a.selectedAssumption()
+	as, ok := a.currentClaim()
 	if !ok {
 		return a.setFlash("Add a claim first; the alternative sits under it.", false)
 	}
+	a.focusCursor(claimCursor{claim: a.cv.challengeSlot.claim, slot: slotInstead})
 
 	if existing := a.cv.cloud.InjectionBreaking(as.ID); existing != nil {
 		return a.openInline(editTarget{kind: editInjectionText, id: existing.ID, claimID: as.ID},
@@ -511,7 +521,7 @@ func (a *App) editInjectionRationale() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	as, ok := a.selectedAssumption()
+	as, ok := a.currentClaim()
 	if !ok {
 		return nil
 	}
@@ -519,6 +529,7 @@ func (a *App) editInjectionRationale() tea.Cmd {
 	if answer == nil {
 		return a.setFlash("Nothing to do instead yet; i starts one.", false)
 	}
+	a.focusCursor(claimCursor{claim: a.cv.challengeSlot.claim, slot: slotWhy})
 	return a.openInline(editTarget{kind: editInjectionRationale, id: answer.ID, claimID: as.ID},
 		answer.Rationale)
 }
@@ -559,7 +570,7 @@ func (a *App) cycleVerdict() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	as, ok := a.selectedAssumption()
+	as, ok := a.currentClaim()
 	if !ok {
 		return a.setFlash("Add a claim first; the verdict belongs to it.", false)
 	}
@@ -576,10 +587,11 @@ func (a *App) editEvidence() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	as, ok := a.selectedAssumption()
+	as, ok := a.currentClaim()
 	if !ok {
 		return a.setFlash("Add a claim first; the evidence belongs to it.", false)
 	}
+	a.focusCursor(claimCursor{claim: a.cv.challengeSlot.claim, slot: slotEvidence})
 	return a.openInline(editTarget{kind: editAssumptionEvidence, id: as.ID, claimID: as.ID}, as.Evidence)
 }
 
@@ -603,12 +615,7 @@ func (a *App) askDeleteAssumption(id string) tea.Cmd {
 
 // clampAssumptionCursor keeps the cursor inside the row list.
 func (a *App) clampChallenge() {
-	last := len(a.challengeAssumptions()) - 1
-	if last < 0 {
-		a.cv.challengeAssumption = 0
-		return
-	}
-	a.cv.challengeAssumption = max(0, min(a.cv.challengeAssumption, last))
+	a.focusCursor(a.cv.challengeSlot)
 }
 
 // selectedAssumptionRow is the row under the cursor in the assumptions pane.
@@ -690,7 +697,7 @@ func (a *App) focusClaim(arrow Arrow, id string) {
 	}
 	for i, as := range a.cv.cloud.AssumptionsFor(arrow) {
 		if as.ID == id {
-			a.cv.challengeAssumption = i
+			a.cv.challengeSlot = claimCursor{claim: i, slot: slotBecause}
 			return
 		}
 	}
