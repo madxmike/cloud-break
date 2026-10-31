@@ -50,10 +50,11 @@ func (p pane) next(delta int) pane {
 type cloudScreen struct {
 	cloud          Cloud
 	pane           pane
-	cursor         int         // statement slot
-	paneWidth      int         // column the pane was last drawn in
-	challengeArrow int         // which readable arrow the form shows
-	challengeSlot  claimCursor // which row of the form has the cursor
+	cursor         int           // statement slot
+	paneWidth      int           // column the pane was last drawn in
+	challengeMode  challengeMode // arrows list, or inside one arrow
+	challengeArrow int           // index into Arrows()
+	challengeSlot  claimCursor   // which row of the form has the cursor
 }
 
 func newCloudScreen(c Cloud) cloudScreen { return cloudScreen{cloud: c} }
@@ -124,6 +125,14 @@ func (a *App) renderDiagramPane(width, height int) string {
 
 // assumptionRow is one line of the assumptions pane: an arrow heading, or one
 // assumption behind that arrow.
+// challengeMode is which level of the challenge pane is showing.
+type challengeMode int
+
+const (
+	challengeList challengeMode = iota // the five arrows
+	challengeForm                      // the rows of one arrow
+)
+
 // challengeArrows are the arrows with something to say: both statements
 // written, or a claim already recorded against them.
 func (a *App) challengeArrows() []Arrow {
@@ -137,22 +146,22 @@ func (a *App) challengeArrows() []Arrow {
 	return arrows
 }
 
-// challengeArrow is the arrow the form is showing.
-func (a *App) challengeArrow() (Arrow, bool) {
-	arrows := a.challengeArrows()
-	if len(arrows) == 0 {
-		return "", false
-	}
-	return arrows[max(0, min(a.cv.challengeArrow, len(arrows)-1))], true
+// challengeArrow is the arrow the cursor is on, valid even before its
+// statements are written so the list always moves.
+func (a *App) challengeArrow() Arrow {
+	arrows := Arrows()
+	return arrows[max(0, min(a.cv.challengeArrow, len(arrows)-1))]
+}
+
+// arrowReady reports whether an arrow has both statements, or a claim already
+// recorded against it.
+func (a *App) arrowReady(arrow Arrow) bool {
+	return a.arrowReading(arrow) != "" || a.cv.cloud.CountFor(arrow) > 0
 }
 
 // challengeAssumptions are the claims behind the arrow on screen.
 func (a *App) challengeAssumptions() []Assumption {
-	arrow, ok := a.challengeArrow()
-	if !ok {
-		return nil
-	}
-	return a.cv.cloud.AssumptionsFor(arrow)
+	return a.cv.cloud.AssumptionsFor(a.challengeArrow())
 }
 
 // claimSlot is one labelled row of a claim.
@@ -230,22 +239,63 @@ func (a *App) currentClaim() (Assumption, bool) {
 	return claims[max(0, min(a.cv.challengeSlot.claim, len(claims)-1))], true
 }
 
-// renderChallenge is the workbench: one arrow, its sentence, and the claims
-// behind it with the answer to each.
+// renderChallenge is the workbench. It opens as a list of arrows; enter on one
+// goes inside it, and the same up and down keys then walk its rows.
 func (a *App) renderChallenge(width, height int) string {
-	arrows := a.challengeArrows()
-	if len(arrows) == 0 {
-		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
-			a.styles.Dim.Width(min(width, 46)).Align(lipgloss.Center).
-				Render("No arrows yet.\n\nAn arrow appears once both of its statements are written."))
+	arrow := a.challengeArrow()
+	if a.cv.challengeMode == challengeForm && a.arrowReady(arrow) {
+		return a.renderChallengeForm(arrow, width, height)
 	}
+	return a.renderChallengeList(width)
+}
 
-	index := max(0, min(a.cv.challengeArrow, len(arrows)-1))
-	arrow := arrows[index]
+// renderChallengeList is the five arrows. Every one is listed, dim until its
+// statements exist, so the list keeps its shape and the cursor always moves.
+func (a *App) renderChallengeList(width int) string {
+	current := a.challengeArrow()
 
-	head := []string{a.challengeStrip(arrows, index, width), ""}
-	for _, line := range strings.Split(a.styles.Dim.Width(max(8, width-3)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
-		head = append(head, "  "+line)
+	rows := make([]string, 0, len(Arrows()))
+	for _, arrow := range Arrows() {
+		selected := arrow == current
+		ready := a.arrowReady(arrow)
+
+		marker := "  "
+		badge := a.styles.Dim
+		switch {
+		case selected:
+			marker = "▸ "
+			badge = a.styles.Accent.Bold(true)
+		case !ready:
+			badge = a.styles.Faint
+		}
+
+		left := marker + badge.Render(string(arrow))
+		if subject := a.arrowSubject(arrow); subject != "" {
+			left += "  " + a.styles.CardValue.Render(truncate(subject, max(8, width-26)))
+		}
+
+		row := spread(left, a.styles.Faint.Render(a.arrowSummary(arrow)), width)
+		if selected {
+			row = a.styles.RowSelected.Width(width).Render(fitLine(row, width))
+		}
+		rows = append(rows, fitLine(row, width))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// renderChallengeForm is one arrow's rows: its sentence, then the claims behind
+// it, each with the slots that belong to it.
+func (a *App) renderChallengeForm(arrow Arrow, width, height int) string {
+	badge := a.styles.Accent.Bold(true).Render(string(arrow))
+	indent := strings.Repeat(" ", lipgloss.Width(badge)+4)
+
+	var head []string
+	for i, line := range strings.Split(a.styles.Dim.Width(max(8, width-lipgloss.Width(indent)-2)).Render(arrow.Reading(&a.cv.cloud)), "\n") {
+		if i == 0 {
+			head = append(head, "  "+badge+"  "+line)
+			continue
+		}
+		head = append(head, "  "+indent+line)
 	}
 	head = append(head, "")
 
@@ -254,10 +304,7 @@ func (a *App) renderChallenge(width, height int) string {
 		return strings.Join(append(head, a.emptyClaim(width)), "\n")
 	}
 
-	focused := a.cv.challengeSlot.claim
-	if focused < 0 || focused >= len(claims) {
-		focused = 0
-	}
+	focused := max(0, min(a.cv.challengeSlot.claim, len(claims)-1))
 	blocks := make([]string, len(claims))
 	heights := make([]int, len(claims))
 	for i, as := range claims {
@@ -275,40 +322,45 @@ func (a *App) renderChallenge(width, height int) string {
 	return strings.Join(append(head, strings.Join(blocks[start:end], "\n")), "\n")
 }
 
-// challengeStrip is the arrow selector. All five arrows are always shown, so
-// the row never changes shape as statements land: arrows that can be read are
-// normal, the ones still waiting are dim, and the arrow on screen carries the
-// marker and its claim count. The arrows on either end say which keys move.
-func (a *App) challengeStrip(arrows []Arrow, current, width int) string {
-	active, hasActive := a.challengeArrow()
-	ready := make(map[Arrow]bool, len(arrows))
-	for _, arrow := range arrows {
-		ready[arrow] = true
+// arrowSubject is the statement an arrow rests on, for the list.
+func (a *App) arrowSubject(arrow Arrow) string {
+	if arrow == ArrowDD2 {
+		return "the two wants collide"
+	}
+	from, _ := arrow.Ends()
+	return a.cv.cloud.Text(from)
+}
+
+// arrowSummary says where an arrow stands: what it still needs, or what has
+// been recorded against it.
+func (a *App) arrowSummary(arrow Arrow) string {
+	claims := a.cv.cloud.AssumptionsFor(arrow)
+	if !a.arrowReady(arrow) {
+		from, to := arrow.Ends()
+		var missing []string
+		if a.cv.cloud.Text(from) == "" {
+			missing = append(missing, string(from))
+		}
+		if a.cv.cloud.Text(to) == "" {
+			missing = append(missing, string(to))
+		}
+		return "needs " + strings.Join(missing, ", ")
+	}
+	if len(claims) == 0 {
+		return "untested"
 	}
 
-	position := 0
-	parts := make([]string, 0, len(Arrows()))
-	for i, arrow := range Arrows() {
-		label := string(arrow)
-		if count := a.cv.cloud.CountFor(arrow); count > 0 {
-			label = fmt.Sprintf("%s %d", arrow, count)
-		}
-
-		switch {
-		case hasActive && arrow == active:
-			position = i + 1
-			parts = append(parts, a.styles.Accent.Bold(true).Render("▸"+label))
-		case ready[arrow]:
-			parts = append(parts, a.styles.Dim.Render(label))
-		default:
-			parts = append(parts, a.styles.Faint.Render(label))
+	parts := []string{plural(len(claims), "claim", "claims")}
+	if worst := worstVerdict(claims); worst != Unassessed {
+		parts = append(parts, worst.String())
+	}
+	for _, as := range claims {
+		if a.cv.cloud.InjectionBreaking(as.ID) != nil {
+			parts = append(parts, "instead")
+			break
 		}
 	}
-
-	left := "  " + a.styles.Faint.Render("←") + "  " + strings.Join(parts, a.styles.Faint.Render("   "))
-	right := a.styles.Faint.Render(fmt.Sprintf("%d of %d", position, len(Arrows()))) +
-		"  " + a.styles.Faint.Render("→")
-	return fitLine(spread(left, right, width), width)
+	return strings.Join(parts, " · ")
 }
 
 // claimTextColumn is where the words start on every labelled row, so the

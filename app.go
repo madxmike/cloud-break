@@ -256,6 +256,11 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, a.keys.Back):
+		if a.cv.pane == paneChallenge && a.cv.challengeMode == challengeForm {
+			a.cv.challengeMode = challengeList
+			a.cv.challengeSlot = claimCursor{}
+			return a, nil
+		}
 		a.screen = screenLibrary
 
 	case key.Matches(msg, a.keys.NextPane):
@@ -321,6 +326,7 @@ func (a *App) handleCloudKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a *App) showPane(p pane) {
 	a.cv.pane = p
 	if p == paneChallenge {
+		a.cv.challengeMode = challengeList
 		a.cv.challengeArrow = 0
 		a.cv.challengeSlot = claimCursor{}
 	}
@@ -329,6 +335,10 @@ func (a *App) showPane(p pane) {
 // moveCursor moves the selection inside the active pane.
 func (a *App) moveCursor(delta int) {
 	if a.cv.pane == paneChallenge {
+		if a.cv.challengeMode == challengeList {
+			a.moveArrow(delta)
+			return
+		}
 		a.moveSlot(delta)
 		return
 	}
@@ -341,12 +351,29 @@ func (a *App) moveArrow(delta int) {
 	if a.cv.pane != paneChallenge {
 		return
 	}
-	arrows := a.challengeArrows()
-	if len(arrows) == 0 {
-		return
-	}
+	arrows := Arrows()
 	a.cv.challengeArrow = (a.cv.challengeArrow + delta + len(arrows)) % len(arrows)
 	a.cv.challengeSlot = claimCursor{}
+
+	if a.cv.challengeMode == challengeForm && !a.arrowReady(a.challengeArrow()) {
+		a.cv.challengeMode = challengeList
+	}
+}
+
+// openArrow goes inside the arrow under the cursor.
+func (a *App) openArrow() tea.Cmd {
+	arrow := a.challengeArrow()
+	if !a.arrowReady(arrow) {
+		return a.setFlash("This arrow needs both of its statements first.", false)
+	}
+	a.cv.challengeMode = challengeForm
+	a.cv.challengeSlot = claimCursor{}
+
+	// Land on the first claim there is, so the marker is never on nothing.
+	if claims := a.challengeAssumptions(); len(claims) == 0 {
+		a.cv.challengeSlot = claimCursor{}
+	}
+	return nil
 }
 
 // activate handles enter: edit the highlighted statement or assumption.
@@ -355,6 +382,9 @@ func (a *App) activate() tea.Cmd {
 	case paneStatements:
 		return a.startInline()
 	case paneChallenge:
+		if a.cv.challengeMode == challengeList {
+			return a.openArrow()
+		}
 		return a.editFocusedSlot()
 	}
 	a.cv.pane = paneStatements
@@ -437,11 +467,7 @@ func (a *App) addAssumption() tea.Cmd {
 	if a.cv.pane != paneChallenge {
 		return nil
 	}
-	arrow, ok := a.challengeArrow()
-	if !ok {
-		return nil
-	}
-	return a.startClaimField(editTarget{kind: editAssumptionText, id: "", arrow: arrow}, "")
+	return a.startClaimField(editTarget{kind: editAssumptionText, id: "", arrow: a.challengeArrow()}, "")
 }
 
 // startClaimField edits a claim where it sits, inside its because slot.
@@ -688,8 +714,8 @@ func (a *App) applyEdit(target editTarget, value string) tea.Cmd {
 
 // focusClaim brings an arrow into the form and puts the cursor on one claim.
 func (a *App) focusClaim(arrow Arrow, id string) {
-	arrows := a.challengeArrows()
-	for i, candidate := range arrows {
+	a.cv.challengeMode = challengeForm
+	for i, candidate := range Arrows() {
 		if candidate == arrow {
 			a.cv.challengeArrow = i
 			break

@@ -216,6 +216,7 @@ func TestEveryArrowShowsItsSentenceInFull(t *testing.T) {
 
 	for i, arrow := range Arrows() {
 		a.cv.challengeArrow = i
+		a.cv.challengeMode = challengeForm
 		plain := strings.Join(strings.Fields(ansi.Strip(a.renderChallenge(200, 30))), " ")
 		reading := strings.Join(strings.Fields(arrow.Reading(&a.cv.cloud)), " ")
 		if !strings.Contains(plain, reading) {
@@ -243,6 +244,7 @@ func TestFooterHoldsOnlyKeys(t *testing.T) {
 	a := newSizedApp(t, 100, 30)
 	a.Update(keyMsg("enter"))
 	a.Update(keyMsg("3"))
+	a.Update(keyMsg("enter")) // inside an arrow, where the row keys are
 
 	lines := strings.Split(ansi.Strip(a.View().Content), "\n")
 	footer := lines[len(lines)-1]

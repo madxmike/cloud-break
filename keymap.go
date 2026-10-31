@@ -138,7 +138,10 @@ func (a *App) footerBindings() []key.Binding {
 
 	switch a.cv.pane {
 	case paneChallenge:
-		return []key.Binding{k.ArrowStep, k.Move, k.Verdict, k.Evidence, k.Inject, k.Add, k.Edit, k.Delete}
+		if a.cv.challengeMode == challengeList {
+			return []key.Binding{k.Move, k.Open, k.Back}
+		}
+		return []key.Binding{k.Move, k.Add, k.Edit, k.Verdict, k.Inject, k.Evidence, k.Delete}
 	case paneProcess:
 		return []key.Binding{k.Verify, k.Back}
 	case paneCloud:

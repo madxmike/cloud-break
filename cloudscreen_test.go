@@ -281,27 +281,71 @@ func openChallenge(t *testing.T) *App {
 	return a
 }
 
-func TestArrowsAppearOnceTheyCanBeRead(t *testing.T) {
+func TestArrowsListStaysStable(t *testing.T) {
 	a := openChallenge(t) // a complete cloud: every arrow can be read
 	if got := len(a.challengeArrows()); got != len(Arrows()) {
-		t.Fatalf("arrows = %d, want %d", got, len(Arrows()))
+		t.Fatalf("ready arrows = %d, want %d", got, len(Arrows()))
 	}
 
-	// With nothing written, no arrow can be read, and the pane says so.
-	empty := New("empty")
-	a.cv.cloud = *empty
-	if got := len(a.challengeArrows()); got != 0 {
-		t.Errorf("empty cloud has %d arrows, want none", got)
+	// With nothing written the list still holds five rows, each saying what it
+	// needs, so the cursor always has somewhere to go.
+	a.cv.cloud = *New("empty")
+	list := ansi.Strip(a.renderChallenge(80, 16))
+	if got := len(strings.Split(strings.TrimRight(list, "\n"), "\n")); got != len(Arrows()) {
+		t.Errorf("empty list has %d rows, want %d:\n%s", got, len(Arrows()), list)
 	}
-	if pane := ansi.Strip(a.renderChallenge(80, 16)); !strings.Contains(pane, "No arrows yet") {
-		t.Errorf("empty pane says nothing:\n%s", pane)
+	if !strings.Contains(list, "needs") {
+		t.Errorf("the list does not say what is missing:\n%s", list)
+	}
+	for _, arrow := range Arrows() {
+		if a.arrowReady(arrow) {
+			t.Errorf("%s reports ready with no statements", arrow)
+		}
+	}
+}
+
+func TestEnterDrillsIntoAnArrowAndEscapeComesBack(t *testing.T) {
+	a := openChallenge(t)
+	a.moveArrow(2) // B-D
+	if a.cv.challengeMode != challengeList {
+		t.Fatal("should start on the arrow list")
+	}
+
+	a.Update(keyMsg("enter"))
+	if a.cv.challengeMode != challengeForm {
+		t.Fatalf("enter left the mode at %v", a.cv.challengeMode)
+	}
+	if form := ansi.Strip(a.renderChallenge(90, 20)); !strings.Contains(form, "because") {
+		t.Errorf("the form does not show its slots:\n%s", form)
+	}
+
+	a.Update(keyMsg("esc"))
+	if a.cv.challengeMode != challengeList {
+		t.Errorf("esc left the mode at %v, want the list", a.cv.challengeMode)
+	}
+	a.Update(keyMsg("esc"))
+	if a.screen != screenLibrary {
+		t.Error("esc from the list should return to the library")
+	}
+}
+
+func TestEnterOnAnUnreadyArrowExplainsItself(t *testing.T) {
+	a := openChallenge(t)
+	a.cv.cloud = *New("empty")
+
+	a.Update(keyMsg("enter"))
+	if a.cv.challengeMode != challengeList {
+		t.Error("entered an arrow with no statements")
+	}
+	if a.flash.text == "" {
+		t.Error("no explanation for an arrow that cannot be read yet")
 	}
 }
 
 func TestAddClaimToTheArrowOnScreen(t *testing.T) {
 	a := openChallenge(t)
 	a.moveArrow(2) // A-B, A-C, B-D
-	if arrow, _ := a.challengeArrow(); arrow != ArrowBD {
+	if arrow := a.challengeArrow(); arrow != ArrowBD {
 		t.Fatalf("arrow = %s, want B-D", arrow)
 	}
 
@@ -443,6 +487,7 @@ func TestCursorWalksEveryRowOfTheForm(t *testing.T) {
 		a.cv.cloud.AddAssumption(ArrowBD, text)
 	}
 	a.moveArrow(2) // onto B-D
+	a.openArrow()  // and inside it
 
 	seen := map[claimSlot]bool{}
 	for range 12 {
