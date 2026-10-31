@@ -338,11 +338,11 @@ func stepStates(c *Cloud) (done, total int) {
 func TestArrowReadings(t *testing.T) {
 	c := resolved()
 	cases := map[Arrow]string{
-		ArrowAB:  "In order to achieve ship the release on time, we must satisfy keep the code free of regressions.",
-		ArrowAC:  "In order to achieve ship the release on time, we must satisfy deliver the promised features.",
-		ArrowBD:  "In order to satisfy keep the code free of regressions, we must freeze the feature set until release.",
-		ArrowCD2: "In order to satisfy deliver the promised features, we must add every requested feature before release.",
-		ArrowDD2: "We cannot freeze the feature set until release while we also add every requested feature before release.",
+		ArrowAB:  "In order to achieve \u201cship the release on time\u201d, we must satisfy \u201ckeep the code free of regressions\u201d.",
+		ArrowAC:  "In order to achieve \u201cship the release on time\u201d, we must satisfy \u201cdeliver the promised features\u201d.",
+		ArrowBD:  "In order to satisfy \u201ckeep the code free of regressions\u201d, we must \u201cfreeze the feature set until release\u201d.",
+		ArrowCD2: "In order to satisfy \u201cdeliver the promised features\u201d, we must \u201cadd every requested feature before release\u201d.",
+		ArrowDD2: "We cannot \u201cfreeze the feature set until release\u201d while we also \u201cadd every requested feature before release\u201d.",
 	}
 	for arrow, want := range cases {
 		if got := arrow.Reading(c); got != want {

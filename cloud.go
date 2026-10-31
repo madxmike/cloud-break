@@ -151,13 +151,14 @@ func (a Arrow) Ends() (from, to Slot) {
 	return "", ""
 }
 
-// phrase presents a statement inside a sentence, or a placeholder when empty.
+// phrase presents a statement inside a sentence. The quotes mark which words
+// are the author's own, so the sentence reads as a template around them.
 func phrase(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return "something unstated"
 	}
-	return s
+	return "\u201c" + s + "\u201d"
 }
 
 // Verdict is a judgement about whether an assumption holds.
