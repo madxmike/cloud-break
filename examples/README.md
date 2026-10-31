@@ -12,14 +12,16 @@ gives the diagram the full width.
 
 Tape: [`build/.vhs/demo.tape`](build/.vhs/demo.tape)
 
-## [Dissolve a cloud](dissolve/.vhs/demo.gif)
+## [Challenge a cloud](dissolve/.vhs/demo.gif)
 
-Starts from a complete cloud in [`dissolve/library`](dissolve/library), surfaces
-one assumption behind each arrow, then challenges the B-D assumption — *the only
-way to avoid regressions is to stop changing code* — until it is marked invalid.
-An injection against it, paired with an automated regression test, breaks the
-arrow. The process pane runs the five-stage method and the cloud is verified as
-evaporated.
+Starts from a completed cloud in [`dissolve/library`](dissolve/library): five
+statements, five claims already surfaced, one of them marked invalid with
+evidence, and an alternative that answers it.
+
+The recording opens the challenge pane as a list of the five arrows, steps onto
+B-D so it expands under its own row, enters it, walks to the `instead` row and
+extends the alternative in place. It then backs out, judges a different claim,
+and finishes in the process pane, verifying that the cloud evaporates.
 
 Tape: [`dissolve/.vhs/demo.tape`](dissolve/.vhs/demo.tape)
 

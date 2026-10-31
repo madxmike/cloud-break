@@ -1,16 +1,15 @@
-# Challenge a cloud's assumptions, inject against the weak one, and verify
-# that it evaporates.
+# Walk a completed cloud through the challenge pane: expand an arrow, judge a
+# claim, change the alternative, then verify the cloud.
 #
-# Starts from a complete cloud in examples/dissolve/library so the recording
-# can spend its time on the part that matters: finding the assumption that
-# does not hold.
+# Starts from a filled cloud in examples/dissolve/library so the recording can
+# spend its time on the work rather than on typing five statements.
 #
 # Run from the repository root: vhs examples/dissolve/.vhs/demo.tape
 Output examples/dissolve/.vhs/demo.gif
 
 Set Shell bash
 Set FontSize 16
-Set Width 1500
+Set Width 1620
 Set Height 950
 Set Padding 20
 Set TypingSpeed 15ms
@@ -24,93 +23,66 @@ Enter
 Sleep 3s
 Show
 
+# The library holds one cloud, already complete.
 Type "./cloud-break -dir /tmp/cloud-break-dissolve"
 Enter
-Sleep 1200ms
+Sleep 2s
 
-# Open the only cloud in the library.
 Enter
-Sleep 1200ms
+Sleep 2s
 
-# Move to the assumptions: the "because" behind each arrow.
+# The challenge pane opens as a list of the five arrows.
 Type "3"
-Sleep 700ms
+Sleep 3s
 
-# Surface one assumption per arrow. After each one the cursor lands on it, so
-# a single Down moves to the next arrow heading.
-Type "a"
-Sleep 350ms
-Type@18ms "a regression costs more than a late feature"
-Sleep 250ms
-Enter
-Sleep 700ms
-
+# Step to B-D. It opens under its own row as the cursor lands on it.
 Down
-Type "a"
-Sleep 350ms
-Type@18ms "sales has committed every feature in writing"
-Sleep 250ms
-Enter
-Sleep 700ms
-
+Sleep 1200ms
 Down
-Type "a"
-Sleep 350ms
-Type@18ms "the only way to avoid regressions is to stop changing code"
-Sleep 250ms
-Enter
-Sleep 700ms
+Sleep 3s
 
+# Enter the expansion; the marker moves from the arrow to its first row.
+Enter
+Sleep 2s
+
+# Walk to the alternative that answers this claim.
 Down
-Type "a"
-Sleep 350ms
-Type@18ms "features cannot be split across releases"
-Sleep 250ms
-Enter
-Sleep 700ms
-
+Sleep 1500ms
 Down
-Type "a"
-Sleep 350ms
-Type@18ms "code that keeps changing cannot be safe"
-Sleep 250ms
-Enter
-Sleep 900ms
+Sleep 2s
 
-# Back up to the B-D assumption, and challenge it: unassessed, holds,
-# questionable, invalid.
-Up
-Up
-Up
-Up
-Sleep 500ms
-Type "v"
-Sleep 350ms
-Type "v"
-Sleep 350ms
-Type "v"
-Sleep 900ms
-
-# The weak link is found. Inject against it.
+# Change the alternative where it sits.
 Type "i"
-Sleep 500ms
-Type@18ms "pair every change with an automated regression test"
-Sleep 250ms
+Sleep 1200ms
+Type " on every pull request"
+Sleep 1200ms
 Enter
-Sleep 1000ms
+Sleep 3s
 
-# The breakthrough, listed against what it breaks.
+# Back out to the arrows, then judge a different claim.
+Escape
+Sleep 2s
+Down
+Sleep 2s
+
+Enter
+Sleep 2s
+Type "v"
+Sleep 2s
+Type "v"
+Sleep 3s
+
+# Back out to the arrow list, look at the process, and confirm the cloud
+# evaporates.
+Escape
+Sleep 1500ms
 Type "4"
-Sleep 2000ms
-
-# Run the method and confirm the cloud evaporates.
-Type "5"
-Sleep 700ms
+Sleep 3s
 Type "V"
-Sleep 3500ms
+Sleep 3s
 
 Hide
 Type "q"
-Sleep 400ms
+Sleep 500ms
 Type "q"
-Sleep 400ms
+Sleep 500ms

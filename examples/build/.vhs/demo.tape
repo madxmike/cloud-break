@@ -37,7 +37,7 @@ Sleep 400ms
 Type@20ms "keep the team shipping at a steady pace"
 Sleep 300ms
 Enter
-Sleep 600ms
+Sleep 1500ms
 
 # B: what our side needs.
 Down
@@ -46,7 +46,7 @@ Sleep 300ms
 Type@20ms "protect focus time"
 Sleep 300ms
 Enter
-Sleep 600ms
+Sleep 1500ms
 
 # C: what their side needs.
 Down
@@ -55,7 +55,7 @@ Sleep 300ms
 Type@20ms "answer every customer escalation"
 Sleep 300ms
 Enter
-Sleep 600ms
+Sleep 1500ms
 
 # D: what our side wants to do about it.
 Down
@@ -64,7 +64,7 @@ Sleep 300ms
 Type@20ms "hold one no-meeting day each week"
 Sleep 300ms
 Enter
-Sleep 600ms
+Sleep 1500ms
 
 # D': what their side wants to do.
 Down
@@ -73,11 +73,13 @@ Sleep 300ms
 Type@20ms "take every escalation the day it lands"
 Sleep 300ms
 Enter
-Sleep 1200ms
+Sleep 2500ms
 
-# The figure is complete. Give it the whole width for a moment.
-Type "2"
-Sleep 4s
+# The figure is complete. Show the challenge list that follows it.
+Type "3"
+Sleep 3s
+Down
+Sleep 3s
 
 Hide
 Type "q"

@@ -12,6 +12,51 @@
     "D": "freeze the code until release",
     "D'": "keep merging features until release"
   },
-  "created": "2026-10-28T09:00:00Z",
-  "updated": "2026-10-28T09:00:00Z"
+  "assumptions": [
+    {
+      "id": "friday-1",
+      "arrow": "A-B",
+      "text": "a regression costs more than a late feature",
+      "verdict": "holds"
+    },
+    {
+      "id": "friday-2",
+      "arrow": "A-C",
+      "text": "sales has committed every feature in writing",
+      "verdict": "questionable",
+      "evidence": "two of the five were noted as nice to have in the kickoff"
+    },
+    {
+      "id": "friday-3",
+      "arrow": "B-D",
+      "text": "the only way to avoid regressions is to stop changing code",
+      "verdict": "invalid",
+      "evidence": "three regressions shipped from a frozen branch last quarter"
+    },
+    {
+      "id": "friday-4",
+      "arrow": "C-D'",
+      "text": "features cannot be split across releases",
+      "verdict": "unassessed"
+    },
+    {
+      "id": "friday-5",
+      "arrow": "D-D'",
+      "text": "code that never changes cannot break",
+      "verdict": "holds"
+    }
+  ],
+  "injections": [
+    {
+      "id": "friday-answer",
+      "breaks": [
+        "friday-3"
+      ],
+      "text": "pair every change with an automated regression test",
+      "rationale": "the test outlives the review"
+    }
+  ],
+  "verified": false,
+  "created": "2026-10-31T02:25:34Z",
+  "updated": "2026-10-31T02:25:34Z"
 }
