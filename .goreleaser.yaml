@@ -38,6 +38,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - man/cloud-break.1
 
 checksum:
   name_template: checksums.txt
