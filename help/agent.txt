@@ -1,0 +1,91 @@
+Driving cloud-break
+
+  cloud-break is built so a script or an agent can run it without asking. This
+  topic is the contract, then a worked sequence, then how to use it well.
+
+The contract:
+  stdout   data only: ids, records, diagrams
+  stderr   every diagnostic, prefixed "cloud-break:"
+  status   0 success, 1 failed or a check found an error, 2 the command line
+           cannot be used, 130 interrupted
+  --json   one object or array, with every field always present
+
+  A writing command prints the id it acted on, one line, so this works:
+
+    id=$(cloud-break new --title "Release scope")
+    asm=$(cloud-break assume add "$id" B-D "freezing scope prevents regressions")
+
+  Reference a cloud, an assumption or an injection by its id or by any
+  unambiguous prefix. Never guess an id: list and show print them. A prefix
+  that matches nothing exits 1; one that matches several exits 2 and names the
+  candidates, so a wrong guess cannot corrupt the wrong cloud.
+
+A whole cloud, in order:
+
+  # 1. create it, with the two sides named
+  id=$(cloud-break new --title "Release scope" --parties "Eng,Sales")
+
+  # 2. state all five statements
+  cloud-break set "$id" A "ship on time"
+  cloud-break set "$id" B "no regressions"      # Eng's need
+  cloud-break set "$id" C "promised features"   # Sales's need
+  cloud-break set "$id" D "freeze the scope"
+  cloud-break set "$id" D2 "add every feature"
+
+  # 3. surface the assumptions, one per arrow to start
+  cloud-break assume add "$id" A-B "shipping on time is what the objective means"
+  cloud-break assume add "$id" A-C "features are what the objective means"
+  cloud-break assume add "$id" B-D "scope cannot change without regressions"
+  cloud-break assume add "$id" C-D2 "every promised feature must ship"
+  cloud-break assume add "$id" D-D2 "the date and the feature list are fixed"
+
+  # 4. challenge them; record the evidence with the verdict
+  weak=$(cloud-break assume add "$id" B-D "a regression is only a regression against a promise")
+  cloud-break assume verdict "$id" "$weak" invalid \
+    --evidence "two hotfixes shipped last month without freezing scope"
+
+  # 5. inject against the assumption you invalidated
+  cloud-break inject add "$id" --breaks "$weak" "cut scope to a fixed date, keep the date"
+
+  # 6. check, then verify
+  cloud-break check "$id"
+  cloud-break verify "$id"
+  cloud-break show "$id"
+
+Reading it back:
+  cloud-break list --status dissolving
+  cloud-break show "$id" --json | jq '.assumptions[] | select(.verdict=="invalid")'
+  cloud-break render "$id"
+  cloud-break export "$id" > cloud.json
+  cloud-break --dir ./scratch new --from cloud.json
+
+Working from a scratch library:
+  --dir keeps a job out of the user's real library, and --demo gives a throwaway
+  library holding the example clouds, so those can be read without being
+  touched:
+
+    cloud-break --dir ./clouds new --title "..."
+    cloud-break --demo list
+    cloud-break --demo show <id>
+
+  A cloud document is one JSON file named after its id, so a whole library can
+  be inspected, copied or diffed with ordinary file tools.
+
+How to use it well:
+  - Ask before inventing. A and the two needs come from the people in the
+    conflict, not from what seems likely.
+  - One assumption per claim. "Scope cannot change and nothing can regress"
+    is two assumptions; record them separately so each can be judged.
+  - Judge the assumption, not the person. Invalid means "this does not hold",
+    and the evidence field is where you say why.
+  - An injection must break an assumption you judged invalid. An injection
+    that merely splits the difference leaves the conflict in place.
+  - Do not verify on the user's behalf. verify records that a person checked
+    the injection dissolves the conflict; run it only when they say so, and
+    use verify --undo to take it back.
+  - check is cheap. Run it after the statements and again after the
+    assumptions; an error means the cloud cannot be worked on at all.
+
+  The text output is line-oriented and greppable: the id is the first field,
+  and the only field that may contain spaces is the last. Prefer --json when
+  reading more than one field; prefer the text shape when scanning.

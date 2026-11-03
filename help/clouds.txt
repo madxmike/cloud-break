@@ -1,0 +1,80 @@
+The cloud
+
+  An evaporating cloud states a conflict as five statements:
+
+    A   the objective both sides share
+    B   a need of the first side          C   a need of the second side
+    D   what the first side wants         D'  what the second side wants
+
+  A-B, A-C, B-D and C-D' are necessity arrows: "in order to <upper>, we must
+  <lower>". D and D' collide, and that collision is the conflict.
+
+  A cloud is only worth working on when all five statements are filled in and D
+  and D' actually disagree. check reports an empty statement as an error, and a
+  D' that only negates D as info.
+
+Statements:
+  set accepts the slot names A, B, C, D and D'. D2 is accepted for D', because
+  a bare apostrophe is awkward to quote in a shell. An empty text clears the
+  statement. Statements are collapsed to one line.
+
+Arrows:
+  assume add accepts A-B, A-C, B-D, C-D' and D-D'. The hyphen is optional and
+  D2 stands in for D', so C-D', C-D2 and CD2 all name the same arrow.
+
+  D-D' carries the conflict itself: assumptions on it are the reasons the two
+  wants cannot both be satisfied.
+
+Assumptions:
+  An assumption is a "because" behind an arrow: the unstated claim the arrow
+  depends on. Every arrow hides some, and the cloud evaporates when an
+  assumption is invalidated.
+
+  An assumption has a text, a verdict and optional evidence:
+
+  verdict       unassessed  not judged yet (the default)
+                holds       there is cause and evidence for it
+                questionable  plausible, but not established
+                invalid     it does not hold
+
+  assume verdict also accepts unknown or none for unassessed, hold or true for
+  holds, question for questionable, and false for invalid.
+
+  The verdict is a judgement about the assumption, not about the person holding
+  it. Mark one invalid when you can show it does not hold, and say what breaks
+  it in the evidence field.
+
+Injections:
+  An injection is the change that makes an assumption irrelevant: the
+  breakthrough that dissolves the conflict instead of trading one want against
+  the other. An injection names the assumptions it breaks, so the link is
+  recorded from both ends.
+
+Process:
+  The five stages are derived from the cloud itself, so no stage has to be
+  ticked off by hand. show and check report where a cloud stands:
+
+  1  State the conflict           all five statements are filled in
+  2  Surface the assumptions      every arrow has at least one assumption
+  3  Find the weak link           an assumption has been judged invalid
+  4  Inject a breakthrough        an injection breaks that assumption
+  5  Verify the cloud evaporates  you confirmed the injection dissolves it
+
+Status:
+  A cloud's status follows the same evidence:
+
+  draft         the statements are not complete
+  open          complete, and nothing has fallen yet
+  dissolving    an assumption is invalid, but no verified injection breaks it
+  dissolved     an injection breaks an invalid assumption, and you verified it
+
+  Nothing is marked dissolved on your behalf: verify is the step where a person
+  says the conflict is gone, and verify --undo takes it back.
+
+Validation:
+  check reports three severities. error blocks: a missing statement, D and D'
+  saying the same thing, an arrow joining an empty statement. warning means the
+  cloud is inconclusive: an arrow with no assumptions, an injection that breaks
+  nothing or breaks an assumption judged to hold, an injection pointing at an
+  assumption that no longer exists, blank text. info is a hint: D' only negates
+  D, an invalid assumption nothing injects against yet.

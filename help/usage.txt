@@ -1,0 +1,135 @@
+cloud-break - build and process evaporating clouds
+
+Usage:
+  cloud-break [options]                    open the library (needs a terminal)
+  cloud-break <command> [options]
+
+Commands:
+  list                                     clouds in the library
+  show <cloud>                             one cloud in full
+  render <cloud>                           the cloud as a diagram
+  check [<cloud>...]                       validate clouds
+  new                                      create a cloud
+  set <cloud> <slot> <text>                write a statement
+  title <cloud> <text>                     rename a cloud
+  parties <cloud> <first> <second>         name the two sides
+  assume add <cloud> <arrow> <text>        record an assumption
+  assume set <cloud> <id> <text>           reword an assumption
+  assume verdict <cloud> <id> <word>       judge an assumption
+  assume evidence <cloud> <id> <text>      record the evidence
+  assume rm <cloud> <id>                   delete an assumption
+  inject add <cloud> [--breaks ids] <text> record an injection
+  inject rm <cloud> <id>                   delete an injection
+  verify <cloud> [--undo]                  record that the cloud evaporates
+  delete <cloud>                           remove a cloud
+  export <cloud>                           print the whole document
+  version                                  print the version
+  help [topic]                             print help
+
+Options:
+  --dir dir      library directory (default $CLOUD_BREAK_HOME, then
+                 $XDG_DATA_HOME/cloud-break, then ~/.local/share/cloud-break)
+  --demo         work on a throwaway library holding the example clouds; it is
+                 thrown away with the run, so it cannot be combined with --dir
+  --json         print machine-readable JSON
+  -h, --help     print this help and exit; --help <topic> for the topics below
+  --version      print the version and exit
+  --man          print the manual page as roff and exit
+
+  A flag may appear before or after the command name.
+
+Naming:
+  <cloud> names a cloud by its id, or by any unambiguous prefix of it, so the
+  first few characters are enough. <id> names an assumption or an injection the
+  same way. list and show print the ids; nothing has to be guessed.
+
+  A missing id fails; an ambiguous one fails and names the candidates, so a
+  short prefix can never silently pick the wrong record.
+
+Text:
+  Every free-text operand runs to the end of the command line, so quotes are
+  optional: "cloud-break set abc A ship on time" and
+  "cloud-break set abc A 'ship on time'" mean the same thing. Pass an empty
+  string to clear a statement or an evidence field.
+
+Reading:
+  list prints one line per cloud:
+
+    <id> <status> <filled>/<total> <assumptions> <updated> <title>
+
+  The title comes last because it is the only field that may contain spaces.
+
+  show prints labelled sections: the statements, the assumptions with their
+  verdicts, the injections, the five process steps and the validation issues.
+
+  check prints one line per finding and nothing at all when a cloud is clean:
+
+    <cloud> <severity> <message>
+
+  Severity is error, warning or info. Only an error fails the run.
+
+  render prints the diagram. It takes --width (default 74, minimum 44). Piped
+  output carries no escape sequences, so it can be read or diffed as it is.
+
+Writing:
+  A command that changes something prints the id it acted on, one line, and
+  nothing else. So the next command can be built from this one:
+
+    id=$(cloud-break new --title "Release scope")
+    cloud-break set "$id" A "ship on time"
+
+  Commands that create a record print the new id: new, assume add, inject add.
+  Commands that change one print the id of the record they changed. delete
+  prints the id of the cloud it removed. verify refuses until an injection
+  breaks an invalid assumption, because a cloud is never marked dissolved on
+  your behalf; --undo withdraws the verification.
+
+JSON:
+  --json replaces the text shapes. A read command prints an object or an array
+  of objects with every field always present, so "absent" never has to be told
+  apart from "empty":
+
+  list   [{id, title, status, progress{filled,total}, assumptions, verified,
+           updated}]
+  show   one object: id, title, parties, status, progress, statements (all five
+         slots), assumptions, injections, verified, created, updated, steps,
+         issues. An assumption carries its verdict, its evidence and the
+         injections that break it; an injection carries the assumptions it
+         breaks.
+  check  [{cloud, severity, message}]
+  export the stored cloud document, the same shape "new --from" reads
+
+  A write command prints {kind, cloud, id}, where kind is cloud, assumption or
+  injection and id is the record it acted on. delete adds "deleted": true.
+  render always prints text; a diagram is not a record.
+
+Exit status:
+  0    the command ran, and no check found an error
+  1    the command failed (a missing cloud, an unreadable document, a failed
+       write), or check found an error
+  2    the command line cannot be used: an unknown command, a missing or
+       ambiguous operand, an unknown slot, arrow or verdict, a bad flag
+  130  the command was interrupted
+
+Environment:
+  CLOUD_BREAK_HOME  library directory, used when --dir is absent
+  XDG_DATA_HOME     library directory is $XDG_DATA_HOME/cloud-break
+
+Examples:
+  cloud-break                                   open the library
+  cloud-break --demo                            browse the example clouds
+  cloud-break new --title "Release scope" --parties "Eng,Sales"
+  cloud-break list --status draft
+  cloud-break set 4f2a1c A "ship on time"
+  cloud-break assume add 4f2a1c B-D "freezing scope prevents regressions"
+  cloud-break assume verdict 4f2a1c 9c8b7a invalid --evidence "we hotfixed twice"
+  cloud-break inject add 4f2a1c --breaks 9c8b7a "cut scope to a fixed date"
+  cloud-break verify 4f2a1c
+  cloud-break show 4f2a1c --json
+  cloud-break check
+  cloud-break export 4f2a1c | cloud-break --dir ./copy new --from -
+
+Help topics:
+  cloud-break --help clouds   the five statements, the arrows, and the words
+                              the commands accept
+  cloud-break --help agent    driving cloud-break from a script or an agent

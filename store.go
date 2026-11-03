@@ -89,6 +89,30 @@ func (s *Store) List() ([]Cloud, error) {
 	return clouds, nil
 }
 
+// Broken lists the library files that cannot be read as a cloud, so a command
+// that reports on the whole library can say what it could not look at instead
+// of leaving it silently out. Files that disappear between the two reads are
+// not reported: they are gone, not damaged.
+func (s *Store) Broken() ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("read library %s: %w", s.dir, err)
+	}
+
+	var broken []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, jsonExt) {
+			continue
+		}
+		if _, err := s.Load(ID(strings.TrimSuffix(name, jsonExt))); err != nil && !errors.Is(err, ErrNotFound) {
+			broken = append(broken, name)
+		}
+	}
+	sort.Strings(broken)
+	return broken, nil
+}
+
 // Load reads one cloud.
 func (s *Store) Load(id ID) (Cloud, error) {
 	var c Cloud

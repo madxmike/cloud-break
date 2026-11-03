@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,55 +62,27 @@ func TestLibraryDirPrecedence(t *testing.T) {
 	})
 }
 
-func TestParseArgs(t *testing.T) {
-	var stderr bytes.Buffer
-
-	opts, err := parseArgs([]string{"-dir", "/tmp/lib", "-version"}, &stderr)
-	if err != nil {
-		t.Fatalf("parseArgs: %v", err)
+// A help request is not a failure, and it is documentation, so it goes to
+// standard output rather than standard error.
+func TestHelpGoesToStdoutAndSucceeds(t *testing.T) {
+	out, errOut, code := cli(t, t.TempDir(), "--help")
+	if code != exitOK {
+		t.Errorf("exit = %d, want %d (stderr %s)", code, exitOK, errOut)
 	}
-	if opts.dir != "/tmp/lib" {
-		t.Errorf("dir = %q", opts.dir)
+	if !strings.Contains(out, "cloud-break - build and process evaporating clouds") {
+		t.Errorf("usage not on stdout: %q", out)
 	}
-	if !opts.showVersion {
-		t.Error("showVersion not set")
-	}
-
-	if _, err := parseArgs([]string{"-nope"}, &stderr); err == nil {
-		t.Error("unknown flag was accepted")
-	}
-	if !strings.Contains(stderr.String(), "usage: cloud-break") {
-		t.Errorf("usage not printed, stderr = %q", stderr.String())
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing", errOut)
 	}
 }
 
-func TestParseArgsDemo(t *testing.T) {
-	var stderr bytes.Buffer
-	opts, err := parseArgs([]string{"-demo"}, &stderr)
-	if err != nil {
-		t.Fatalf("parseArgs: %v", err)
+func TestVersionNeedsNoTerminal(t *testing.T) {
+	out, errOut, code := cli(t, t.TempDir(), "--version")
+	if code != exitOK {
+		t.Fatalf("exit = %d, want %d (stderr %s)", code, exitOK, errOut)
 	}
-	if !opts.demo {
-		t.Error("demo flag not set")
-	}
-}
-
-func TestRunHelpIsNotAFailure(t *testing.T) {
-	var out, errBuf bytes.Buffer
-	if err := run([]string{"-h"}, &out, &errBuf); err != nil {
-		t.Errorf("run(-h) = %v, want nil", err)
-	}
-	if !strings.Contains(errBuf.String(), "usage: cloud-break") {
-		t.Errorf("usage was not printed: %q", errBuf.String())
-	}
-}
-
-func TestRunVersionNeedsNoTerminal(t *testing.T) {
-	var out, errBuf bytes.Buffer
-	if err := run([]string{"-version"}, &out, &errBuf); err != nil {
-		t.Fatalf("run: %v (stderr %s)", err, errBuf.String())
-	}
-	if !strings.Contains(out.String(), version) {
-		t.Errorf("output %q does not mention version %q", out.String(), version)
+	if !strings.Contains(out, version) {
+		t.Errorf("output %q does not mention version %q", out, version)
 	}
 }

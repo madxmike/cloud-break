@@ -1,0 +1,318 @@
+.TH CLOUD-BREAK 1
+.SH NAME
+cloud-break \- build and process evaporating clouds
+.SH USAGE
+.nf
+cloud-break - build and process evaporating clouds
+
+Usage:
+  cloud-break [options]                    open the library (needs a terminal)
+  cloud-break <command> [options]
+
+Commands:
+  list                                     clouds in the library
+  show <cloud>                             one cloud in full
+  render <cloud>                           the cloud as a diagram
+  check [<cloud>...]                       validate clouds
+  new                                      create a cloud
+  set <cloud> <slot> <text>                write a statement
+  title <cloud> <text>                     rename a cloud
+  parties <cloud> <first> <second>         name the two sides
+  assume add <cloud> <arrow> <text>        record an assumption
+  assume set <cloud> <id> <text>           reword an assumption
+  assume verdict <cloud> <id> <word>       judge an assumption
+  assume evidence <cloud> <id> <text>      record the evidence
+  assume rm <cloud> <id>                   delete an assumption
+  inject add <cloud> [--breaks ids] <text> record an injection
+  inject rm <cloud> <id>                   delete an injection
+  verify <cloud> [--undo]                  record that the cloud evaporates
+  delete <cloud>                           remove a cloud
+  export <cloud>                           print the whole document
+  version                                  print the version
+  help [topic]                             print help
+
+Options:
+  --dir dir      library directory (default $CLOUD_BREAK_HOME, then
+                 $XDG_DATA_HOME/cloud-break, then ~/.local/share/cloud-break)
+  --demo         work on a throwaway library holding the example clouds; it is
+                 thrown away with the run, so it cannot be combined with --dir
+  --json         print machine-readable JSON
+  -h, --help     print this help and exit; --help <topic> for the topics below
+  --version      print the version and exit
+  --man          print the manual page as roff and exit
+
+  A flag may appear before or after the command name.
+
+Naming:
+  <cloud> names a cloud by its id, or by any unambiguous prefix of it, so the
+  first few characters are enough. <id> names an assumption or an injection the
+  same way. list and show print the ids; nothing has to be guessed.
+
+  A missing id fails; an ambiguous one fails and names the candidates, so a
+  short prefix can never silently pick the wrong record.
+
+Text:
+  Every free-text operand runs to the end of the command line, so quotes are
+  optional: "cloud-break set abc A ship on time" and
+  "cloud-break set abc A 'ship on time'" mean the same thing. Pass an empty
+  string to clear a statement or an evidence field.
+
+Reading:
+  list prints one line per cloud:
+
+    <id> <status> <filled>/<total> <assumptions> <updated> <title>
+
+  The title comes last because it is the only field that may contain spaces.
+
+  show prints labelled sections: the statements, the assumptions with their
+  verdicts, the injections, the five process steps and the validation issues.
+
+  check prints one line per finding and nothing at all when a cloud is clean:
+
+    <cloud> <severity> <message>
+
+  Severity is error, warning or info. Only an error fails the run.
+
+  render prints the diagram. It takes --width (default 74, minimum 44). Piped
+  output carries no escape sequences, so it can be read or diffed as it is.
+
+Writing:
+  A command that changes something prints the id it acted on, one line, and
+  nothing else. So the next command can be built from this one:
+
+    id=$(cloud-break new --title "Release scope")
+    cloud-break set "$id" A "ship on time"
+
+  Commands that create a record print the new id: new, assume add, inject add.
+  Commands that change one print the id of the record they changed. delete
+  prints the id of the cloud it removed. verify refuses until an injection
+  breaks an invalid assumption, because a cloud is never marked dissolved on
+  your behalf; --undo withdraws the verification.
+
+JSON:
+  --json replaces the text shapes. A read command prints an object or an array
+  of objects with every field always present, so "absent" never has to be told
+  apart from "empty":
+
+  list   [{id, title, status, progress{filled,total}, assumptions, verified,
+           updated}]
+  show   one object: id, title, parties, status, progress, statements (all five
+         slots), assumptions, injections, verified, created, updated, steps,
+         issues. An assumption carries its verdict, its evidence and the
+         injections that break it; an injection carries the assumptions it
+         breaks.
+  check  [{cloud, severity, message}]
+  export the stored cloud document, the same shape "new --from" reads
+
+  A write command prints {kind, cloud, id}, where kind is cloud, assumption or
+  injection and id is the record it acted on. delete adds "deleted": true.
+  render always prints text; a diagram is not a record.
+
+Exit status:
+  0    the command ran, and no check found an error
+  1    the command failed (a missing cloud, an unreadable document, a failed
+       write), or check found an error
+  2    the command line cannot be used: an unknown command, a missing or
+       ambiguous operand, an unknown slot, arrow or verdict, a bad flag
+  130  the command was interrupted
+
+Environment:
+  CLOUD_BREAK_HOME  library directory, used when --dir is absent
+  XDG_DATA_HOME     library directory is $XDG_DATA_HOME/cloud-break
+
+Examples:
+  cloud-break                                   open the library
+  cloud-break --demo                            browse the example clouds
+  cloud-break new --title "Release scope" --parties "Eng,Sales"
+  cloud-break list --status draft
+  cloud-break set 4f2a1c A "ship on time"
+  cloud-break assume add 4f2a1c B-D "freezing scope prevents regressions"
+  cloud-break assume verdict 4f2a1c 9c8b7a invalid --evidence "we hotfixed twice"
+  cloud-break inject add 4f2a1c --breaks 9c8b7a "cut scope to a fixed date"
+  cloud-break verify 4f2a1c
+  cloud-break show 4f2a1c --json
+  cloud-break check
+  cloud-break export 4f2a1c | cloud-break --dir ./copy new --from -
+
+Help topics:
+  cloud-break --help clouds   the five statements, the arrows, and the words
+                              the commands accept
+  cloud-break --help agent    driving cloud-break from a script or an agent
+.fi
+.SH CLOUDS
+.nf
+The cloud
+
+  An evaporating cloud states a conflict as five statements:
+
+    A   the objective both sides share
+    B   a need of the first side          C   a need of the second side
+    D   what the first side wants         D'  what the second side wants
+
+  A-B, A-C, B-D and C-D' are necessity arrows: "in order to <upper>, we must
+  <lower>". D and D' collide, and that collision is the conflict.
+
+  A cloud is only worth working on when all five statements are filled in and D
+  and D' actually disagree. check reports an empty statement as an error, and a
+  D' that only negates D as info.
+
+Statements:
+  set accepts the slot names A, B, C, D and D'. D2 is accepted for D', because
+  a bare apostrophe is awkward to quote in a shell. An empty text clears the
+  statement. Statements are collapsed to one line.
+
+Arrows:
+  assume add accepts A-B, A-C, B-D, C-D' and D-D'. The hyphen is optional and
+  D2 stands in for D', so C-D', C-D2 and CD2 all name the same arrow.
+
+  D-D' carries the conflict itself: assumptions on it are the reasons the two
+  wants cannot both be satisfied.
+
+Assumptions:
+  An assumption is a "because" behind an arrow: the unstated claim the arrow
+  depends on. Every arrow hides some, and the cloud evaporates when an
+  assumption is invalidated.
+
+  An assumption has a text, a verdict and optional evidence:
+
+  verdict       unassessed  not judged yet (the default)
+                holds       there is cause and evidence for it
+                questionable  plausible, but not established
+                invalid     it does not hold
+
+  assume verdict also accepts unknown or none for unassessed, hold or true for
+  holds, question for questionable, and false for invalid.
+
+  The verdict is a judgement about the assumption, not about the person holding
+  it. Mark one invalid when you can show it does not hold, and say what breaks
+  it in the evidence field.
+
+Injections:
+  An injection is the change that makes an assumption irrelevant: the
+  breakthrough that dissolves the conflict instead of trading one want against
+  the other. An injection names the assumptions it breaks, so the link is
+  recorded from both ends.
+
+Process:
+  The five stages are derived from the cloud itself, so no stage has to be
+  ticked off by hand. show and check report where a cloud stands:
+
+  1  State the conflict           all five statements are filled in
+  2  Surface the assumptions      every arrow has at least one assumption
+  3  Find the weak link           an assumption has been judged invalid
+  4  Inject a breakthrough        an injection breaks that assumption
+  5  Verify the cloud evaporates  you confirmed the injection dissolves it
+
+Status:
+  A cloud's status follows the same evidence:
+
+  draft         the statements are not complete
+  open          complete, and nothing has fallen yet
+  dissolving    an assumption is invalid, but no verified injection breaks it
+  dissolved     an injection breaks an invalid assumption, and you verified it
+
+  Nothing is marked dissolved on your behalf: verify is the step where a person
+  says the conflict is gone, and verify --undo takes it back.
+
+Validation:
+  check reports three severities. error blocks: a missing statement, D and D'
+  saying the same thing, an arrow joining an empty statement. warning means the
+  cloud is inconclusive: an arrow with no assumptions, an injection that breaks
+  nothing or breaks an assumption judged to hold, an injection pointing at an
+  assumption that no longer exists, blank text. info is a hint: D' only negates
+  D, an invalid assumption nothing injects against yet.
+.fi
+.SH AGENT
+.nf
+Driving cloud-break
+
+  cloud-break is built so a script or an agent can run it without asking. This
+  topic is the contract, then a worked sequence, then how to use it well.
+
+The contract:
+  stdout   data only: ids, records, diagrams
+  stderr   every diagnostic, prefixed "cloud-break:"
+  status   0 success, 1 failed or a check found an error, 2 the command line
+           cannot be used, 130 interrupted
+  --json   one object or array, with every field always present
+
+  A writing command prints the id it acted on, one line, so this works:
+
+    id=$(cloud-break new --title "Release scope")
+    asm=$(cloud-break assume add "$id" B-D "freezing scope prevents regressions")
+
+  Reference a cloud, an assumption or an injection by its id or by any
+  unambiguous prefix. Never guess an id: list and show print them. A prefix
+  that matches nothing exits 1; one that matches several exits 2 and names the
+  candidates, so a wrong guess cannot corrupt the wrong cloud.
+
+A whole cloud, in order:
+
+  # 1. create it, with the two sides named
+  id=$(cloud-break new --title "Release scope" --parties "Eng,Sales")
+
+  # 2. state all five statements
+  cloud-break set "$id" A "ship on time"
+  cloud-break set "$id" B "no regressions"      # Eng's need
+  cloud-break set "$id" C "promised features"   # Sales's need
+  cloud-break set "$id" D "freeze the scope"
+  cloud-break set "$id" D2 "add every feature"
+
+  # 3. surface the assumptions, one per arrow to start
+  cloud-break assume add "$id" A-B "shipping on time is what the objective means"
+  cloud-break assume add "$id" A-C "features are what the objective means"
+  cloud-break assume add "$id" B-D "scope cannot change without regressions"
+  cloud-break assume add "$id" C-D2 "every promised feature must ship"
+  cloud-break assume add "$id" D-D2 "the date and the feature list are fixed"
+
+  # 4. challenge them; record the evidence with the verdict
+  weak=$(cloud-break assume add "$id" B-D "a regression is only a regression against a promise")
+  cloud-break assume verdict "$id" "$weak" invalid \\
+    --evidence "two hotfixes shipped last month without freezing scope"
+
+  # 5. inject against the assumption you invalidated
+  cloud-break inject add "$id" --breaks "$weak" "cut scope to a fixed date, keep the date"
+
+  # 6. check, then verify
+  cloud-break check "$id"
+  cloud-break verify "$id"
+  cloud-break show "$id"
+
+Reading it back:
+  cloud-break list --status dissolving
+  cloud-break show "$id" --json | jq '.assumptions[] | select(.verdict=="invalid")'
+  cloud-break render "$id"
+  cloud-break export "$id" > cloud.json
+  cloud-break --dir ./scratch new --from cloud.json
+
+Working from a scratch library:
+  --dir keeps a job out of the user's real library, and --demo gives a throwaway
+  library holding the example clouds, so those can be read without being
+  touched:
+
+    cloud-break --dir ./clouds new --title "..."
+    cloud-break --demo list
+    cloud-break --demo show <id>
+
+  A cloud document is one JSON file named after its id, so a whole library can
+  be inspected, copied or diffed with ordinary file tools.
+
+How to use it well:
+  - Ask before inventing. A and the two needs come from the people in the
+    conflict, not from what seems likely.
+  - One assumption per claim. "Scope cannot change and nothing can regress"
+    is two assumptions; record them separately so each can be judged.
+  - Judge the assumption, not the person. Invalid means "this does not hold",
+    and the evidence field is where you say why.
+  - An injection must break an assumption you judged invalid. An injection
+    that merely splits the difference leaves the conflict in place.
+  - Do not verify on the user's behalf. verify records that a person checked
+    the injection dissolves the conflict; run it only when they say so, and
+    use verify --undo to take it back.
+  - check is cheap. Run it after the statements and again after the
+    assumptions; an error means the cloud cannot be worked on at all.
+
+  The text output is line-oriented and greppable: the id is the first field,
+  and the only field that may contain spaces is the last. Prefer --json when
+  reading more than one field; prefer the text shape when scanning.
+.fi
