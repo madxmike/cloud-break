@@ -128,8 +128,8 @@ func TestPaneCycle(t *testing.T) {
 	}
 }
 
-// figure renders the diagram pane for a cloud and returns the plain text.
-func figure(t *testing.T, a *App, width, height int) (string, string) {
+// drawFigure renders the diagram pane for a cloud and returns the plain text.
+func drawFigure(t *testing.T, a *App, width, height int) (string, string) {
 	t.Helper()
 	styled := a.renderDiagram(width, height)
 	return styled, ansi.Strip(styled)
@@ -139,7 +139,7 @@ func TestDiagramDrawsEveryNode(t *testing.T) {
 	a := newSizedApp(t, 112, 30)
 	a.Update(keyMsg("enter"))
 
-	styled, plain := figure(t, a, a.diagramWidth(), a.bodyHeight())
+	styled, plain := drawFigure(t, a, a.diagramWidth(), a.bodyHeight())
 	if plain == "" {
 		t.Fatal("no diagram at 112 columns")
 	}
@@ -173,7 +173,7 @@ func TestDiagramNeverDrawsThroughText(t *testing.T) {
 	a := newSizedApp(t, 112, 30)
 	a.Update(keyMsg("enter"))
 
-	_, plain := figure(t, a, a.diagramWidth(), a.bodyHeight())
+	_, plain := drawFigure(t, a, a.diagramWidth(), a.bodyHeight())
 	for _, line := range strings.Split(plain, "\n") {
 		runes := []rune(line)
 		for i := 1; i < len(runes)-1; i++ {
@@ -214,7 +214,7 @@ func TestDiagramShowsAssumptionCounts(t *testing.T) {
 	id := a.cv.cloud.AddAssumption(ArrowBD, "review catches every regression")
 	a.cv.cloud.AssumptionByID(id).Verdict = Invalid
 
-	_, plain := figure(t, a, a.diagramWidth(), a.bodyHeight())
+	_, plain := drawFigure(t, a, a.diagramWidth(), a.bodyHeight())
 	if !strings.Contains(plain, "B-D 1") {
 		t.Errorf("ledger does not count the B-D assumption:\n%s", plain)
 	}

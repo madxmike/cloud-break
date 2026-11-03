@@ -109,14 +109,14 @@ func (a *App) renderPane(width, height int) string {
 // renderDiagramPane shows the figure alone, centred, for narrow windows.
 func (a *App) renderDiagramPane(width, height int) string {
 	figureWidth := min(width, 92)
-	figure := a.renderDiagram(figureWidth, height)
-	if figure == "" {
+	drawn := a.renderDiagram(figureWidth, height)
+	if drawn == "" {
 		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center,
 			a.styles.Dim.Render("The diagram needs a wider window (at least 44 columns)."))
 	}
 
 	indent := max(0, (width-figureWidth)/2)
-	lines := strings.Split(figure, "\n")
+	lines := strings.Split(drawn, "\n")
 	for i, line := range lines {
 		lines[i] = strings.Repeat(" ", indent) + line
 	}
@@ -754,7 +754,9 @@ func (a *App) slotCard(info SlotInfo, selected bool, width int) string {
 // arrow between them. Connectors land on a ┬ or ┴ in the border they meet, so
 // the drawing stays connected even when the node texts are different lengths.
 
-// Style ids used by the diagram canvas. They index diagramPalette.
+// Style ids used by the diagram canvas. They index diagramPalette. The first
+// group styles cells on the grid; the ledger ids style the assumption counts
+// printed under it, which are not cells.
 const (
 	diagPlain = iota
 	diagBorder
@@ -763,6 +765,9 @@ const (
 	diagSideTwo
 	diagPlaceholder
 	diagDanger
+	diagDim
+	diagWarning
+	diagSuccess
 )
 
 // diagramMinWidth is the narrowest column that still holds two readable nodes
@@ -910,7 +915,28 @@ func (a *App) diagramPalette() []lipgloss.Style {
 		diagSideTwo:     a.styles.SideTwo,
 		diagPlaceholder: a.styles.CardPrompt,
 		diagDanger:      a.styles.Danger,
+		diagDim:         a.styles.Dim,
+		diagWarning:     a.styles.Warning,
+		diagSuccess:     a.styles.Success,
 	}
+}
+
+// plainPalette draws the figure with no styling at all, so a command line that
+// writes to a pipe emits no escape sequences.
+func plainPalette() []lipgloss.Style {
+	palette := make([]lipgloss.Style, diagSuccess+1)
+	for i := range palette {
+		palette[i] = lipgloss.NewStyle()
+	}
+	return palette
+}
+
+// figure draws one cloud as the diagram. It carries its own palette instead of
+// an App so the interface and the command line draw the same figure, and the
+// command line can draw it plain.
+type figure struct {
+	cloud   Cloud
+	palette []lipgloss.Style
 }
 
 // diagramWidth is the column the figure gets in the side-by-side layout.
@@ -921,15 +947,20 @@ func (a *App) diagramWidth() int {
 // splitView reports whether the diagram and a pane can sit side by side.
 func (a *App) splitView() bool { return a.width >= 100 }
 
-// renderDiagram draws the cloud: the objective with its two needs above, the
-// two colliding wants below, and a ledger of assumptions per arrow. It returns
-// "" when the space is too small to draw honestly.
+// renderDiagram draws the app's open cloud.
 func (a *App) renderDiagram(width, height int) string {
+	return figure{cloud: a.cv.cloud, palette: a.diagramPalette()}.render(width, height)
+}
+
+// render draws the cloud: the objective with its two needs above, the two
+// colliding wants below, and a ledger of assumptions per arrow. It returns ""
+// when the space is too small to draw honestly.
+func (f figure) render(width, height int) string {
 	if width < diagramMinWidth {
 		return ""
 	}
 
-	c := a.cv.cloud
+	c := f.cloud
 	boxWidth := min(30, (width-5)/2-4)
 	if boxWidth < 14 {
 		return ""
@@ -954,11 +985,9 @@ func (a *App) renderDiagram(width, height int) string {
 	rightCX := rightX + total/2
 	midCX := (leftCX + rightCX) / 2
 
-	palette := a.diagramPalette()
-
 	// The objective is the top of the figure, so only its bottom joins.
 	cv.drawNode((width-total)/2, 0, total,
-		a.nodeTitle(SlotA), a.nodeText(SlotA),
+		f.nodeTitle(SlotA), f.nodeText(SlotA),
 		diagObjective, diagPlain, diagBorder, false, true)
 
 	y := hA
@@ -977,10 +1006,10 @@ func (a *App) renderDiagram(width, height int) string {
 
 	needsTop := y
 	hB := cv.drawNode(leftX, needsTop, total,
-		a.nodeTitle(SlotB), a.nodeText(SlotB),
+		f.nodeTitle(SlotB), f.nodeText(SlotB),
 		diagSideOne, diagPlain, diagBorder, true, true)
 	hC := cv.drawNode(rightX, needsTop, total,
-		a.nodeTitle(SlotC), a.nodeText(SlotC),
+		f.nodeTitle(SlotC), f.nodeText(SlotC),
 		diagSideTwo, diagPlain, diagBorder, true, true)
 
 	// The two needs are different lengths, so each connector starts just below
@@ -995,10 +1024,10 @@ func (a *App) renderDiagram(width, height int) string {
 
 	// The wants are the bottom of the figure, so nothing joins below them.
 	cv.drawNode(leftX, y, total,
-		a.nodeTitle(SlotD), a.nodeText(SlotD),
+		f.nodeTitle(SlotD), f.nodeText(SlotD),
 		diagSideOne, diagPlain, diagBorder, true, false)
 	cv.drawNode(rightX, y, total,
-		a.nodeTitle(SlotD2), a.nodeText(SlotD2),
+		f.nodeTitle(SlotD2), f.nodeText(SlotD2),
 		diagSideTwo, diagPlain, diagBorder, true, false)
 
 	// The conflict: arrows pushing against each other across the gap.
@@ -1013,52 +1042,61 @@ func (a *App) renderDiagram(width, height int) string {
 		}
 	}
 
-	lines := cv.render(palette)
-	return strings.Join(append(lines, a.diagramLedger(width)...), "\n")
+	lines := cv.render(f.palette)
+	return strings.Join(append(lines, f.ledger(width)...), "\n")
 }
 
 // nodeTitle labels a node with its slot, role and side.
-func (a *App) nodeTitle(s Slot) string {
+func (f figure) nodeTitle(s Slot) string {
 	info := SlotOf(s)
 	if info.Side == 0 {
 		return fmt.Sprintf("%s · %s", info.Slot, info.Name)
 	}
-	return fmt.Sprintf("%s · %s (%s)", info.Slot, info.Name, a.cv.cloud.Party(info.Side))
+	return fmt.Sprintf("%s · %s (%s)", info.Slot, info.Name, f.cloud.Party(info.Side))
 }
 
-func (a *App) nodeText(s Slot) string {
-	if text := a.cv.cloud.Text(s); text != "" {
+func (f figure) nodeText(s Slot) string {
+	if text := f.cloud.Text(s); text != "" {
 		return text
 	}
 	return "not yet stated"
 }
 
-// diagramLedger reports how many assumptions sit behind each arrow, coloured by
-// the worst verdict on it: the diagram doubles as a progress map.
-func (a *App) diagramLedger(width int) []string {
+// ledger reports how many assumptions sit behind each arrow, coloured by the
+// worst verdict on it: the diagram doubles as a progress map.
+func (f figure) ledger(width int) []string {
 	var line strings.Builder
-	line.WriteString(a.styles.Dim.Render("assumptions "))
+	line.WriteString(f.styled(diagDim, "assumptions "))
 	for i, arrow := range Arrows() {
 		if i > 0 {
-			line.WriteString(a.styles.Faint.Render(" · "))
+			line.WriteString(f.styled(diagBorder, " · "))
 		}
-		count := a.cv.cloud.CountFor(arrow)
-		style := a.styles.Faint
-		switch worstVerdict(a.cv.cloud.AssumptionsFor(arrow)) {
+		count := f.cloud.CountFor(arrow)
+		style := diagBorder
+		switch worstVerdict(f.cloud.AssumptionsFor(arrow)) {
 		case Invalid:
-			style = a.styles.Danger
+			style = diagDanger
 		case Questionable:
-			style = a.styles.Warning
+			style = diagWarning
 		case Holds:
-			style = a.styles.Success
+			style = diagSuccess
 		default:
 			if count > 0 {
-				style = a.styles.Dim
+				style = diagDim
 			}
 		}
-		line.WriteString(style.Render(fmt.Sprintf("%s %d", arrow, count)))
+		line.WriteString(f.styled(style, fmt.Sprintf("%s %d", arrow, count)))
 	}
 	return []string{"", fitLine(line.String(), width)}
+}
+
+// styled renders text in one palette entry, falling back to plain text when the
+// palette does not reach as far as the id.
+func (f figure) styled(style int, text string) string {
+	if style > diagPlain && style < len(f.palette) {
+		return f.palette[style].Render(text)
+	}
+	return text
 }
 
 // worstVerdict ranks the assumptions on one arrow, invalid first.
