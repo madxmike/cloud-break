@@ -2,9 +2,8 @@
 
 cloud-break is a tui program designed to help create and resolve [Evaportating Clouds](https://en.wikipedia.org/wiki/Evaporating_cloud).
 
-It has two front ends onto the same library: the interface for thinking in, and
-a command line for scripting and for agents. Both read and write the same JSON
-documents, so a cloud can be started in one and finished in the other.
+It has two front ends onto one library: the interface, and a command line that
+reads and writes the same JSON documents.
 
 ## What is an "Evaporating Cloud"?
 
@@ -89,10 +88,11 @@ Clouds live in one JSON file each, under the first of:
 3. `$XDG_DATA_HOME/cloud-break`
 4. `~/.local/share/cloud-break`
 
-## From a script or an agent
+## Usage
 
-Every command works on the library above, prints data to stdout and diagnostics
-to stderr, and says what happened in its exit status:
+A command works on the library described above instead of opening it. The five
+statements are written first, then the assumptions on the arrows, then a verdict,
+an injection and a verification:
 
 ```sh
 id=$(cloud-break new --title "Release scope" --parties "Eng,Sales")
@@ -103,44 +103,30 @@ cloud-break set "$id" D "freeze the scope"
 cloud-break set "$id" D2 "add every feature"
 
 weak=$(cloud-break assume add "$id" B-D "scope cannot change without regressions")
-cloud-break assume verdict "$id" "$weak" invalid \
-  --evidence "two hotfixes shipped last month without freezing scope"
-cloud-break inject add "$id" --breaks "$weak" "cut scope to a fixed date, keep the date"
+cloud-break assume verdict "$id" "$weak" invalid --evidence "we hotfixed twice"
+cloud-break inject add "$id" --breaks "$weak" "cut scope to a fixed date"
 
-cloud-break check "$id"     # validate; fails when a cloud cannot be worked on
-cloud-break verify "$id"    # record that you checked it dissolves the conflict
+cloud-break check "$id"
+cloud-break verify "$id"
 cloud-break show "$id"
 ```
 
-What makes it predictable to drive:
+A command writes its data to standard output and its diagnostics to standard
+error, and reports the outcome in its exit status: `0` the command ran, `1` it
+failed or a check found an error, `2` the command line cannot be used, `130` it
+was interrupted. A command that writes prints the id it acted on, and a cloud,
+an assumption or an injection may be named by any unambiguous prefix of its id.
+`--json` prints the same data as JSON, with every field always present.
 
-- **stdout is data.** Every diagnostic is on stderr, so output can be piped.
-- **A write prints the id it acted on**, one line, so the next command never has
-to guess. Ids can be abbreviated to any unambiguous prefix.
-- **Two shapes for every read.** Text is line-oriented and greppable, with the
-one field that may contain spaces last; `--json` always carries every field, so
-"absent" never has to be told from "empty". Derived values — status, progress,
-the five process steps, the validation issues, and the links between
-assumptions and injections — are reported, not left to be recomputed.
-- **Exit status is the contract.** `0` success, `1` the run failed or a check
-found an error, `2` the command line cannot be used, `130` interrupted.
-- **Flags go anywhere.** `inject add <cloud> --breaks id text` and
-`inject add --breaks id <cloud> text` mean the same thing.
+Set `CLOUD_BREAK_HOME` to choose the library; `--dir` overrides it. `--demo`
+works on a throwaway copy of the example clouds and takes no `--dir`.
 
-```sh
-cloud-break list --status dissolving    # what still needs work
-cloud-break check                       # the whole library
-cloud-break render "$id"                # the diagram, as text
-cloud-break show "$id" --json | jq '.assumptions[] | select(.verdict=="invalid")'
-cloud-break export "$id" > cloud.json   # one cloud, to move or to commit
-cloud-break --dir ./scratch new --from cloud.json
-```
+For the five statements, the arrows and the words the commands accept see
+`cloud-break --help clouds`. For the output shapes and the sequence above see
+`cloud-break --help agent`. For the whole manual see `cloud-break --man`.
 
-`cloud-break --help` lists the commands. Two further topics carry the rest:
-`cloud-break --help clouds` is the model — the five statements, the arrows, the
-verdicts and the process — and `cloud-break --help agent` is the contract above
-as a workflow. `cloud-break --man` prints the manual page, and
-`man/cloud-break.1` is generated from the same text.
+[`examples/library/`](examples/library) holds clouds in every state, and
+`cloud-break --demo list` reads them without copying anything.
 
 ## Processing a cloud
 
