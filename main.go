@@ -13,7 +13,7 @@ import (
 )
 
 // version is stamped at build time with -ldflags "-X main.version=...".
-var version = "0.1.0"
+var version = "0.2.0"
 
 func main() {
 	s := streams{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr}
